@@ -1,0 +1,32 @@
+---
+source: tests/workflows.rs
+expression: "capture(&mut app, 100, 28)"
+---
+<?>        Help                     <m>        Move mail                <0> all
+<ctrl-d>   Delete                   <c>        Compose mail             <1> work
+<h/H>┌──────────────────────── 📎 Attachments · select files to save ─────────────────────────┐
+<ctrl│Filter:  dnbi                                                                           │
+<pgdn│2 files · 0 selected                                                                    │
+<esc>│  📎 données.bin                                                            1 KiB       │
+     │                                                                                        │
+┌────│                                                                                        │────┐
+│Mult│                                                                                        │    │
+│From│                                                                                        │    │
+│To: │                                                                                        │    │
+│work│                                                                                        │    │
+│    │                                                                                        │    │
+│See │                                                                                        │    │
+│    │                                                                                        │    │
+│Atta│                                                                                        │    │
+│    │                                                                                        │    │
+│    │                                                                                        │    │
+│    │                                                                                        │    │
+│    │                                                                                        │    │
+│    │                                                                                        │    │
+│    │                                                                                        │    │
+│    │Space/Tab mark · Ctrl+A all · Enter save                                                │    │
+│    │Esc close · Enter without marks saves the pointed file                                  │    │
+│    └────────────────────────────────────────────────────────────────────────────────────────┘    │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+ message(all)   work / Sent  0 marked
+DEMO · Enter folds/unfolds accounts and folders · h/H HTML · Ctrl+C twice quits

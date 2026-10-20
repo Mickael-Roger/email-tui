@@ -1,0 +1,28 @@
+---
+source: tests/workflows.rs
+expression: "capture(&mut app, 80, 24)"
+---
+<?>        Help              <m>        Move mail         <0> all
+<ctrl-d>   Delete            <c>        Compose mail      <1> work
+<h/H┌─────────────── Keyboard help · ↑/↓ scroll · Esc close ───────────────┐
+<ctr│MailTUI · one Messages tree                                           │
+<pgd│                                                                      │
+<esc│Ctrl+a         Open or resume the optional mail assistant · :ai       │
+    │Ctrl+s         Save attachments from the opened message               │
+┌───│:              Command mode · ↑/↓ history                             │───┐
+│Rel│/              Local full-text search · fuzzy result picker           │   │
+│Fro│?              Open this keyboard reference                           │   │
+│To:│Esc            Cancel / clear filter / previous view                  │   │
+│wor│q              Back; quit at root                                     │   │
+│   │↓              Next tree row / scroll down                            │   │
+│Hel│↑              Previous tree row / scroll up                          │   │
+│   │PgDn           Page down                                              │   │
+│The│PgUp           Page up                                                │   │
+│Our│Ctrl+d         Move marked messages to Trash · confirmation           │   │
+│   │Ctrl+c         Press twice within 3 seconds to quit                   │   │
+│Che│Enter          Fold/unfold account or folder; read message; load more │   │
+│  -│Space          Toggle selected message (never an account or folder)   │   │
+│  -└──────────────────────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────────────────────┘
+ message(all)   work / INBOX  0 marked
+DEMO · Enter folds/unfolds accounts and folders · h/H HTML · Ctrl+C twice quits

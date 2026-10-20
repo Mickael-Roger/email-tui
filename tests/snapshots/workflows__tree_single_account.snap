@@ -1,0 +1,44 @@
+---
+source: tests/workflows.rs
+expression: "capture(&mut app, 120, 40)"
+---
+<?>        Help                            <m>        Move mail                       <0> all
+<ctrl-d>   Delete mail                     <c>        Compose mail                    <1> work
+<enter>    Unfold / read                   <n>        New directory                   <2> personal
+<h/H>      HTML / remote                   <space>    Mark mail                       Pending: 0
+</>        Local search                    <ctrl-c>   Twice to quit
+                                           <esc>      Back
+
+┌──────────────────────────────────────── Messages(work)[17 mail / 7 folders] ─────────────────────────────────────────┐
+│NAME / SUBJECT                                                FROM                          DATE↓            NEW/TOTAL│
+│▸ 📁 INBOX                                                                                                   37/55    │
+│▾ 📂 Projects                                                                                                0/0      │
+│  ▾ 📂 Rust                                                                                                  0/0      │
+│    ▾ 📂 MailTUI                                                                                             6/9      │
+│      Dinner on Friday?                                       ops@example.com               2026-10-16 15:14          │
+│      Design review: local-first mail                         bob@example.com               2026-10-16 14:14          │
+│      Your October statement                                  alerts@example.com            2026-10-16 13:14          │
+│      日本語 · Unicode et café                                alice@example.com             2026-10-16 12:14          │
+│      Maintenance window tonight                              ops@example.com               2026-10-16 11:14          │
+│      📎 Release planning — Kubernetes 1.35                   alice@example.com             2026-10-16 10:14          │
+│      Incident follow-up: networking                          ops@example.com               2026-10-16 09:14          │
+│      Re: Review notes                                        bob@example.com               2026-10-16 08:14          │
+│      Weekly infrastructure report                            alerts@example.com            2026-10-16 07:14          │
+│▸ 📁 Sent                                                                                                    0/0      │
+│▾ 📂 Archive                                                                                                 5/8      │
+│  Bienvenue dans MailTUI ✨                                   alice@example.com             2026-10-16 06:14          │
+│  ★ Dinner on Friday?                                         ops@example.com               2026-10-16 05:14          │
+│  Design review: local-first mail                             bob@example.com               2026-10-16 04:14          │
+│  Your October statement                                      alerts@example.com            2026-10-16 03:14          │
+│  日本語 · Unicode et café                                    alice@example.com             2026-10-16 02:14          │
+│  Maintenance window tonight                                  ops@example.com               2026-10-16 01:14          │
+│  📎 Release planning — Kubernetes 1.35                       alice@example.com             2026-10-16 00:14          │
+│  Incident follow-up: networking                              ops@example.com               2026-10-15 23:14          │
+│▸ 📁 Trash                                                                                                   0/0      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ messages(work)   work / INBOX  0 marked
+DEMO · Enter folds/unfolds accounts and folders · h/H HTML · Ctrl+C twice quits

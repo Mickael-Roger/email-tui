@@ -1,0 +1,32 @@
+---
+source: tests/workflows.rs
+expression: "capture(&mut app, 100, 28)"
+---
+<?>        Help                     <m>        Move mail                <0> all
+<ctrl-d>   Delete mail              <c>        Compose mail             <1> work
+<ente┌──────────────────────────────────── Compose email ─────────────────────────────────────┐
+<h/H>│From: work <you@company.example> (↑/↓ changes account)                                  │
+</>  │To:      alice@example.com                                                              │
+     │Subject: Multiple attachments                                                           │
+     │Body:    See attached.                                                                  │
+┌────│                                                                                        │────┐
+│NAME│                                                                                        │OTAL│
+│▾ 📬│                                                                                        │    │
+│  ▾ │                                                                                        │    │
+│    │                                                                                        │    │
+│    │                                                                                        │    │
+│    │                                                                                        │    │
+│    │                                                                                        │    │
+│    │                                                                                        │    │
+│    │                                                                                        │    │
+│    │                                                                                        │    │
+│    │                                                                                        │    │
+│    │                                                                                        │    │
+│    │Attachments (2): données.bin, report.pdf                                                │    │
+│    │Ctrl+T browse / change attachments                                                      │    │
+│    │Tab / Shift+Tab fields · Ctrl+S send                                                    │    │
+│    │Ctrl+O save draft · Esc cancel                                                          │    │
+│    └────────────────────────────────────────────────────────────────────────────────────────┘    │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+ messages(all)   account → folder → messages  0 marked
+DEMO · Enter folds/unfolds accounts and folders · h/H HTML · Ctrl+C twice quits

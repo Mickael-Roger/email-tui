@@ -1,0 +1,32 @@
+---
+source: tests/workflows.rs
+expression: "capture(&mut app, 100, 28)"
+---
+<?>        Help                     <m>        Move mail                <0> all
+<ctrl-d>   Delete mail              <c>        Compose mail             <1> work
+<ente┌─────────────────── Attach files · fuzzy filter · multiple selection ───────────────────┐
+<h/H>│[fixture]/nested                                                                        │
+</>  │Filter:  dnbi                                                                           │
+     │✓ 📎 données.bin                                                            1 KiB       │
+     │                                                                                        │
+┌────│                                                                                        │────┐
+│NAME│                                                                                        │OTAL│
+│▾ 📬│                                                                                        │    │
+│  ▾ │                                                                                        │    │
+│    │                                                                                        │    │
+│    │                                                                                        │    │
+│    │                                                                                        │    │
+│    │                                                                                        │    │
+│    │                                                                                        │    │
+│    │                                                                                        │    │
+│    │                                                                                        │    │
+│    │                                                                                        │    │
+│    │                                                                                        │    │
+│    │                                                                                        │    │
+│    │                                                                                        │    │
+│    │2 selected · Tab mark · Enter open/attach · Backspace parent                            │    │
+│    │Ctrl+S attach · Ctrl+U clear marks · Esc cancel                                         │    │
+│    └────────────────────────────────────────────────────────────────────────────────────────┘    │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+ messages(all)   account → folder → messages  0 marked
+DEMO · Enter folds/unfolds accounts and folders · h/H HTML · Ctrl+C twice quits

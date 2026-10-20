@@ -1,0 +1,28 @@
+---
+source: tests/workflows.rs
+expression: "capture(&mut app, 80, 24)"
+---
+<?>        Help              <m>        Move mail         <0> all
+<ctrl-d>   Delete mail       <c>        Compose mail      <1> work
+<enter>    Unfold / read     <n>        New directory     <2> personal
+<h/H>      HTML / remote     <space>    Mark mail         Pending: 0
+</>        Local search      <ctrl-c>   Twice to quit
+                             <esc>      Back
+
+┌──────────────────────────────── Diagnostics ─────────────────────────────────┐
+│Backend: DEMO (volatile)                                                      │
+│Accounts: 2                                                                   │
+│Folders: 14                                                                   │
+│Loaded message rows: 110 / 2000 maximum                                       │
+│Expanded folders: 2                                                           │
+│Outgoing mail: 0                                                              │
+│                                                                              │
+│Browser: one Messages tree, accounts → folders → mail                         │
+│Metadata: lazy per-folder pages, no MIME in list reads                        │
+│Storage: public reader + producer queue                                       │
+│Live updates: public change cursors, every 2s                                 │
+│Search: MailTUI local SQLite FTS5 + fuzzy metadata                            │
+│Index updates: additions/deletions/hydration                                  │
+└──────────────────────────────────────────────────────────────────────────────┘
+ diagnostics(all)   account → folder → messages  0 marked
+DEMO · Enter folds/unfolds accounts and folders · h/H HTML · Ctrl+C twice quits

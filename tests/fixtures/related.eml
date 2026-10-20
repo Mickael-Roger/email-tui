@@ -1,0 +1,41 @@
+From: Alice <alice@example.com>
+To: Team <team@example.com>
+Subject: Release planning — Kubernetes 1.35
+Date: Sun, 18 Oct 2026 09:14:00 +0000
+Message-ID: <release@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="related"
+
+--related
+Content-Type: multipart/alternative; boundary="alternative"
+
+--alternative
+Content-Type: text/plain; charset=utf-8
+
+Hello team,
+
+The Kubernetes release is ready for review.
+Our local-first mail client keeps this message available offline.
+
+Checklist:
+  - Review release notes
+  - Validate networking and incident recovery
+  - Celebrate!
+
+https://pimalaya.org
+
+Best,
+Alice
+--alternative
+Content-Type: text/html; charset=utf-8
+
+<html><body><h1>Release planning</h1><p>Hello team,</p><p>The <b>Kubernetes</b> release is ready for review.</p><img src="cid:release-logo" alt="Embedded logo"><p><a href="https://pimalaya.org">Pimalaya</a></p><img src="https://tracker.invalid/pixel" alt="Remote tracking blocked"><script>alert('must never execute')</script></body></html>
+--alternative--
+--related
+Content-Type: image/png
+Content-ID: <release-logo>
+Content-Disposition: inline; filename="logo.png"
+Content-Transfer-Encoding: base64
+
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=
+--related--

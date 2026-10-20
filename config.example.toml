@@ -1,0 +1,63 @@
+# MailTUI configuration — not Neverest's configuration format.
+# Mutations use the pimdir producer queue. Mail-server credentials belong to Neverest.
+[ui]
+theme = "k9s-dark" # k9s-dark, high-contrast, no-color
+# Messages is always one tree: account (in all scope) -> directory -> mail.
+# The former preview_pane/directory_pane options are accepted but ignored.
+
+[viewer]
+mode = "auto" # manual: display private URL without starting a browser
+session_ttl_seconds = 600
+browser_command = ["xdg-open", "{url}"]
+# For Firefox: ["firefox", "--new-tab", "{url}"]
+# Viewer bind is intentionally not configurable: 127.0.0.1 + ephemeral port.
+# h blocks remote images; H enables them. The page button can toggle either mode.
+
+# Used only after sending a message. Incoming mail is handled by Carillon.
+[delivery]
+command = ["neverest"]
+timeout_seconds = 240
+# config = "/home/your-user/.config/neverest/config.toml"
+
+# Optional assistant. No requests or Codex process until explicitly invoked.
+# Omit this section or leave enabled=false to use MailTUI without an LLM.
+[llm]
+enabled = false
+provider = "openai_compatible"
+model = "" # Required when enabled: the exact model served by your endpoint.
+endpoint = "https://api.openai.com/v1"
+api = "chat_completions" # or "responses"; tool/function calling is required.
+timeout_seconds = 180
+max_tool_rounds = 12
+[llm.auth]
+method = "api_key"
+api_key_env = "MAILTUI_LLM_API_KEY"
+# For Codex OAuth, replace the llm/llm.auth settings with:
+# [llm]
+# enabled = true
+# provider = "codex"
+# model = "YOUR_CODEX_MODEL"
+# codex_command = ["codex"] # Recent app-server with experimental dynamicTools.
+# timeout_seconds = 180
+# [llm.auth]
+# method = "codex_oauth"
+# Then run :ai login inside MailTUI. The dedicated Codex home defaults to
+# $XDG_DATA_HOME/mailtui/codex (or ~/.local/share/mailtui/codex).
+# Override with an absolute llm.codex_home if desired.
+
+[[accounts]]
+id = "personal"
+# neverest_account = "personal" # defaults to this ID; always passed explicitly as -a
+# 0 = all accounts; 1..9 = configured accounts in this file's order.
+# The account ID "all" is reserved for the all-accounts scope.
+label = "Personal"
+email = "me@example.com"
+store = "/home/your-user/.local/state/neverest/personal"
+# Replace this with your actual Neverest store directory. No ~ expansion.
+# Each configured ID identifies a store; collection IDs retain upstream namespaces.
+
+[[accounts]]
+id = "work"
+label = "Work"
+email = "me@company.example"
+store = "/home/your-user/.local/state/neverest/work"

@@ -1,0 +1,16 @@
+---
+source: tests/workflows.rs
+expression: "capture(&mut app, w, h)"
+---
+<m> Move mail       <enter> Fold/read
+<c> Compose mail    <h/H> HTML
+<n> New directory   <0..9> Accounts
+┌ Messages(all)[110 mail / 14 folders] ┐
+│NAME / SUBJECT                        │
+│▾ 📬 work (48/72)                     │
+│  ▾ 📂 INBOX (37/55)                  │
+│    📎 Release planning — Kubernetes 1│
+│    Incident follow-up: networking    │
+└──────────────────────────────────────┘
+ messages(all)   account → folder → mess
+DEMO · Enter folds/unfolds accounts and

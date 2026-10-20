@@ -1,0 +1,32 @@
+---
+source: tests/workflows.rs
+expression: "capture(&mut app, 100, 28)"
+---
+<?>        Help                     <m>        Move mail                <0> all
+<ctrl-d>   Delete mail              <c>        Compose mail             <1> work
+<ente┌───────────────────────────── Search · MailTUI local index ─────────────────────────────┐
+<h/H>│Search:  kbrnts                                                                         │
+</>  │Local text + fuzzy metadata · all · 23 results                                          │
+     │Release planning — Kubernetes 1.35       alice@example.com      personal / INBOX        │
+     │Release planning — Kubernetes 1.35       alice@example.com      personal / INBOX        │
+┌────│Release planning — Kubernetes 1.35       alice@example.com      personal / INBOX        │────┐
+│NAME│Release planning — Kubernetes 1.35       alice@example.com      personal / INBOX        │OTAL│
+│▾ 📬│Release planning — Kubernetes 1.35       alice@example.com      personal / INBOX        │    │
+│  ▾ │Release planning — Kubernetes 1.35       alice@example.com      personal / INBOX        │    │
+│    │Release planning — Kubernetes 1.35       alice@example.com      personal / Projects/Rust│    │
+│    │Release planning — Kubernetes 1.35       alice@example.com      work / Projects/Rust/Mai│    │
+│    │Release planning — Kubernetes 1.35       alice@example.com      personal / Archive      │    │
+│    │Release planning — Kubernetes 1.35       alice@example.com      work / Archive          │    │
+│    │Release planning — Kubernetes 1.35       alice@example.com      work / INBOX            │    │
+│    │Re: Review notes                         bob@example.com        work / INBOX            │    │
+│    │Release planning — Kubernetes 1.35       alice@example.com      work / INBOX            │    │
+│    │Re: Review notes                         bob@example.com        work / INBOX            │    │
+│    │Release planning — Kubernetes 1.35       alice@example.com      work / INBOX            │    │
+│    │Re: Review notes                         bob@example.com        work / INBOX            │    │
+│    │Release planning — Kubernetes 1.35       alice@example.com      work / INBOX            │    │
+│    │Re: Review notes                         bob@example.com        work / INBOX            │    │
+│    │↑/↓ choose · Enter read · Esc close · live local index                                  │    │
+│    └────────────────────────────────────────────────────────────────────────────────────────┘    │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+ messages(all)   account → folder → messages  0 marked
+DEMO · Enter folds/unfolds accounts and folders · h/H HTML · Ctrl+C twice quits

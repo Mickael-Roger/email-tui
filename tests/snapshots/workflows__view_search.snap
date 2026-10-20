@@ -1,0 +1,28 @@
+---
+source: tests/workflows.rs
+expression: "capture(&mut app, 80, 24)"
+---
+<?>        Help              <m>        Move mail         <0> all
+<ctrl-d>   Delete mail       <c>        Compose mail      <1> work
+<enter>    Unfold / read     <n>        New directory     <2> personal
+<h/H>      HTML / remote     <space>    Mark mail         Pending: 0
+</>        Local search      <ctrl-c>   Twice to quit
+                             <esc>      Back
+
+┌─── Messages(all)[44 mail / 14 folders] /from:alice@example.com kubernetes ───┐
+│NAME / SUBJECT                            FROM                DATE↓           │
+│▾ 📬 work (48/72)                         you@company.example                 │
+│  ▾ 📂 INBOX (37/55)                                                          │
+│    📎 Release planning — Kubernetes 1.35 alice@example.com   2026-10-18 22:14│
+│    Bienvenue dans MailTUI ✨             alice@example.com   2026-10-18 18:14│
+│    日本語 · Unicode et café              alice@example.com   2026-10-18 14:14│
+│    ★ 📎 Release planning — Kubernetes 1. alice@example.com   2026-10-18 12:14│
+│    Bienvenue dans MailTUI ✨             alice@example.com   2026-10-18 08:14│
+│    日本語 · Unicode et café              alice@example.com   2026-10-18 04:14│
+│    📎 Release planning — Kubernetes 1.35 alice@example.com   2026-10-18 02:14│
+│    Bienvenue dans MailTUI ✨             alice@example.com   2026-10-17 22:14│
+│    日本語 · Unicode et café              alice@example.com   2026-10-17 18:14│
+│    📎 Release planning — Kubernetes 1.35 alice@example.com   2026-10-17 16:14│
+└──────────────────────────────────────────────────────────────────────────────┘
+ messages(all)   account → folder → messages  0 marked
+Search results in the Messages tree · up to 200 hits · Esc returns to browsing

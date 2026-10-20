@@ -1,0 +1,28 @@
+---
+source: tests/workflows.rs
+expression: "capture(&mut app, 80, 24)"
+---
+<?>        Help              <m>        Move mail         <0> all
+<ctrl-d>   Delete mail       <c>        Compose mail      <1> work
+<enter>    Unfold / read     <n>        New directory     <2> personal
+<h/H>      HTML / remote     <space>    Mark mail         Pending: 0
+</>        Local search      <ctrl-c>   Twice to quit
+                             <esc>      Back
+
+┌────────────────────────────── Command history ───────────────────────────────┐
+│:accounts                                                                     │
+│:status                                                                       │
+│:outbox                                                                       │
+│:history                                                                      │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+ command history(all)   account → folder → messages  0 marked
+DEMO · Enter folds/unfolds accounts and folders · h/H HTML · Ctrl+C twice quits

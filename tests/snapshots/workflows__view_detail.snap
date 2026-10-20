@@ -1,0 +1,28 @@
+---
+source: tests/workflows.rs
+expression: "capture(&mut app, 80, 24)"
+---
+<?>        Help              <m>        Move mail         <0> all
+<ctrl-d>   Delete            <c>        Compose mail      <1> work
+<h/H>      HTML / remote     <n>        New directory     <2> personal
+<ctrl-s>   Save attachments  <space>    Mark mail         Pending: 0
+<pgdn/up>  Page              <ctrl-c>   Twice to quit
+<esc>      Back              <esc>      Back
+
+┌────────────────────────────────── Message ───────────────────────────────────┐
+│Release planning — Kubernetes 1.35                                            │
+│From: alice@example.com                                                       │
+│To: team@example.com                                                          │
+│work / INBOX · 2026-10-18T22:14:00Z                                           │
+│                                                                              │
+│Hello team,                                                                   │
+│                                                                              │
+│The Kubernetes release is ready for review.                                   │
+│Our local-first mail client keeps this message available offline.             │
+│                                                                              │
+│Checklist:                                                                    │
+│  - Review release notes                                                      │
+│  - Validate networking and incident recovery                                 │
+└──────────────────────────────────────────────────────────────────────────────┘
+ message(all)   work / INBOX  0 marked
+DEMO · Enter folds/unfolds accounts and folders · h/H HTML · Ctrl+C twice quits

@@ -1,0 +1,54 @@
+---
+source: tests/workflows.rs
+expression: "capture(&mut app, w, h)"
+---
+<?>        Help                                                 <m>        Move mail                                            <0> all                            __  __       _ _
+<ctrl-d>   Delete mail                                          <c>        Compose mail                                         <1> work                          |  \/  | __ _(_) |
+<enter>    Unfold / read                                        <n>        New directory                                        <2> personal                      | |\/| |/ _` | | |
+<h/H>      HTML / remote                                        <space>    Mark mail                                            Pending: 0                        | |  | | (_| | | |
+</>        Local search                                         <ctrl-c>   Twice to quit                                                                          |_|  |_|\__,_|_|_|
+                                                                <esc>      Back                                                                                          T U I
+
+┌────────────────────────────────────────────────────────────────────── Messages(all)[110 mail / 14 folders] ──────────────────────────────────────────────────────────────────────┐
+│NAME / SUBJECT                                                                                             FROM                                         DATE↓            NEW/TOTAL│
+│▾ 📬 work                                                                                                  you@company.example                                           48/72    │
+│  ▾ 📂 INBOX                                                                                                                                                             37/55    │
+│    📎 Release planning — Kubernetes 1.35                                                                  alice@example.com                            2026-10-18 22:14          │
+│    Incident follow-up: networking                                                                         ops@example.com                              2026-10-18 21:14          │
+│    Re: Review notes                                                                                       bob@example.com                              2026-10-18 20:14          │
+│    Weekly infrastructure report                                                                           alerts@example.com                           2026-10-18 19:14          │
+│    Bienvenue dans MailTUI ✨                                                                              alice@example.com                            2026-10-18 18:14          │
+│    Dinner on Friday?                                                                                      ops@example.com                              2026-10-18 17:14          │
+│    Design review: local-first mail                                                                        bob@example.com                              2026-10-18 16:14          │
+│    Your October statement                                                                                 alerts@example.com                           2026-10-18 15:14          │
+│    日本語 · Unicode et café                                                                               alice@example.com                            2026-10-18 14:14          │
+│    Maintenance window tonight                                                                             ops@example.com                              2026-10-18 13:14          │
+│    ★ 📎 Release planning — Kubernetes 1.35                                                                alice@example.com                            2026-10-18 12:14          │
+│    Incident follow-up: networking                                                                         ops@example.com                              2026-10-18 11:14          │
+│    Re: Review notes                                                                                       bob@example.com                              2026-10-18 10:14          │
+│    Weekly infrastructure report                                                                           alerts@example.com                           2026-10-18 09:14          │
+│    Bienvenue dans MailTUI ✨                                                                              alice@example.com                            2026-10-18 08:14          │
+│    Dinner on Friday?                                                                                      ops@example.com                              2026-10-18 07:14          │
+│    Design review: local-first mail                                                                        bob@example.com                              2026-10-18 06:14          │
+│    Your October statement                                                                                 alerts@example.com                           2026-10-18 05:14          │
+│    日本語 · Unicode et café                                                                               alice@example.com                            2026-10-18 04:14          │
+│    Maintenance window tonight                                                                             ops@example.com                              2026-10-18 03:14          │
+│    📎 Release planning — Kubernetes 1.35                                                                  alice@example.com                            2026-10-18 02:14          │
+│    ★ Incident follow-up: networking                                                                       ops@example.com                              2026-10-18 01:14          │
+│    Re: Review notes                                                                                       bob@example.com                              2026-10-18 00:14          │
+│    Weekly infrastructure report                                                                           alerts@example.com                           2026-10-17 23:14          │
+│    Bienvenue dans MailTUI ✨                                                                              alice@example.com                            2026-10-17 22:14          │
+│    Dinner on Friday?                                                                                      ops@example.com                              2026-10-17 21:14          │
+│    Design review: local-first mail                                                                        bob@example.com                              2026-10-17 20:14          │
+│    Your October statement                                                                                 alerts@example.com                           2026-10-17 19:14          │
+│    日本語 · Unicode et café                                                                               alice@example.com                            2026-10-17 18:14          │
+│    Maintenance window tonight                                                                             ops@example.com                              2026-10-17 17:14          │
+│    📎 Release planning — Kubernetes 1.35                                                                  alice@example.com                            2026-10-17 16:14          │
+│    Incident follow-up: networking                                                                         ops@example.com                              2026-10-17 15:14          │
+│    ★ Re: Review notes                                                                                     bob@example.com                              2026-10-17 14:14          │
+│    Weekly infrastructure report                                                                           alerts@example.com                           2026-10-17 13:14          │
+│    Bienvenue dans MailTUI ✨                                                                              alice@example.com                            2026-10-17 12:14          │
+│    Dinner on Friday?                                                                                      ops@example.com                              2026-10-17 11:14          │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ messages(all)   account → folder → messages  0 marked
+DEMO · Enter folds/unfolds accounts and folders · h/H HTML · Ctrl+C twice quits

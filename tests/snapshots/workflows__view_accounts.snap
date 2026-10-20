@@ -1,0 +1,28 @@
+---
+source: tests/workflows.rs
+expression: "capture(&mut app, 80, 24)"
+---
+<?>        Help              <m>        Move mail         <0> all
+<enter/u>  Use account       <c>        Compose mail      <1> work
+<0>        All accounts      <n>        New directory     <2> personal
+</>        Filter            <space>    Mark mail         Pending: 0
+<:>        Commands          <ctrl-c>   Twice to quit
+<esc>      Back              <esc>      Back
+
+┌────────────────────────────── Accounts(all)[3] ──────────────────────────────┐
+│ACTIVE ACCOUNT      NAME           ADDRESS                             UNREAD │
+│*      all          All accounts   —                                   96     │
+│       work         Work           you@company.example                 48     │
+│       personal     Personal       you@example.com                     48     │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+ accounts(all)   account → folder → messages  0 marked
+DEMO · Enter folds/unfolds accounts and folders · h/H HTML · Ctrl+C twice quits

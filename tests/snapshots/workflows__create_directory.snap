@@ -1,0 +1,28 @@
+---
+source: tests/workflows.rs
+expression: "capture(&mut app, 80, 24)"
+---
+<?>        Help              <m>        Move mail         <0> all
+<ctrl-d>   Delete mail       <c>        Compose mail      <1> work
+<ent┌────────────────────────── Create directory ──────────────────────────┐
+<h/H│Account: work                                                         │
+</> │Parent: / (Tab changes)                                               │
+    │Name:    Travel                                                       │
+    │Enter create · Esc cancel                                             │
+┌───│                                                                      │───┐
+│NAM│                                                                      │   │
+│▾ 📂                                                                      │   │
+│  I│                                                                      │:14│
+│  R│                                                                      │:14│
+│  W│                                                                      │:14│
+│  B│                                                                      │:14│
+│  D│                                                                      │:14│
+│  D│                                                                      │:14│
+│  Y│                                                                      │:14│
+│  日                                                                      │:14│
+│  M│                                                                      │:14│
+│  ★│                                                                      │:14│
+│  I│                                                                      │:14│
+└───└──────────────────────────────────────────────────────────────────────┘───┘
+ messages(work)   work / INBOX  0 marked
+DEMO · Enter folds/unfolds accounts and folders · h/H HTML · Ctrl+C twice quits
