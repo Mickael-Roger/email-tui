@@ -6,6 +6,7 @@ import fcntl
 import http.server
 import json
 import os
+from pathlib import Path
 import pty
 import re
 import select
@@ -60,6 +61,12 @@ def main():
                 '[llm]\nenabled = true\nmodel = "terminal-fixture-model"\n'
                 f'endpoint = "http://127.0.0.1:{server.server_port}/v1"\n'
                 '[llm.auth]\napi_key_env = "MAILTUI_PTY_LLM_KEY"\n'
+                "[calendar]\nenabled = true\n"
+                '[[calendar.collections]]\nid = "local"\nlabel = "Local"\n'
+                f'path = "{directory}/calendar"\n'
+                "[contacts]\nenabled = true\n"
+                '[[contacts.books]]\nid = "friends"\nlabel = "Friends"\n'
+                f'path = "{directory}/contacts"\n'
             )
         pid, master = pty.fork()
         if pid == 0:
@@ -113,7 +120,7 @@ def main():
 
         try:
             expect(b"DEMO")
-            send(b"1", b"Messages(work)")
+            send(b":ns work\r", b"Messages(work)")
             send(b":inbox\r", b"Messages(work)[55 mail")
             send(b":dir Projects/Rust/MailTUI\r", b"Messages(work)[64 mail")
             send(
@@ -123,7 +130,7 @@ def main():
                 b"\r", b"Messages(work)[64 mail"
             )  # Unfold cached mail in the same list.
             send(b":inbox\r", b"Messages(work)[64 mail")
-            send(b"2", b"Messages(personal)")
+            send(b":ns personal\r", b"Messages(personal)")
             send(b"0", b"Messages(all)")
             send(b":ns\r", b"ADDRESS")
             send(b":directories\r", b"NAME / SUBJECT")
@@ -166,6 +173,41 @@ def main():
             send(b"h", b"private URL")
             send(b"\x1b", b"Hello team")
             send(b"H", b"/remote")
+            send(b"\x1b", b"Hello team")
+            send(b"1", "Calendar · 0 entries".encode())
+            send(b"c", b"New event")
+            send(
+                b"\tPTY meeting\t20261201T090000\t20261201T100000\tRoom\tNotes\t\x13",
+                "Calendar · 1 entries".encode(),
+            )
+            calendar_files = list(Path(directory, "calendar").glob("*.ics"))
+            assert len(calendar_files) == 1
+            event_file = calendar_files[0]
+            assert "SUMMARY:PTY meeting" in event_file.read_text()
+            event_file.write_text(
+                event_file.read_text().replace("PTY meeting", "Synced meeting")
+            )
+            send(b"", b"Synced meeting")
+            send(b"e", b"Edit event")
+            send(b"\x01Updated \x13", "Calendar · 1 entries".encode())
+            assert "SUMMARY:Updated Synced meeting" in event_file.read_text()
+            send(b"2", "Contacts · 0 people".encode())
+            send(b"c", b"New contact")
+            send(
+                b"\tPTY contact\tperson@example.test\t+33123\tTeam\x13",
+                "Contacts · 1 people".encode(),
+            )
+            contact_files = list(Path(directory, "contacts").glob("*.vcf"))
+            assert len(contact_files) == 1
+            assert "EMAIL:person@example.test" in contact_files[0].read_text()
+            send(b"\x04", b"Confirm deletion")
+            send(b"y\r", "Contacts · 0 people".encode())
+            assert not contact_files[0].exists()
+            send(b"1", b"Updated Synced meeting")
+            send(b"\x04", b"Confirm deletion")
+            send(b"y\r", "Calendar · 0 entries".encode())
+            assert not event_file.exists()
+            send(b"0", b"Messages(all)")
             os.write(master, b"\x1b")
             time.sleep(0.1)
             # Resize in detail and back: event-driven redraw must remain usable.
@@ -192,7 +234,7 @@ def main():
                 "Terminal mode was not restored"
             )
             print(
-                "PTY smoke passed: folded tree, namespaces, nested folders, Ctrl+D, m fuzzy picker, directory creation, c composer/draft, local reload, MIME, attachment download, Ctrl+A/:ai conversation, streaming, sources, HTML URL, resize, terminal restoration"
+                "PTY smoke passed: mail tree, :ns account scope, folders, composer, MIME/attachments, assistant, HTML, calendar/contact CRUD, automatic vdir refresh, 0/1/2 views, resize, terminal restoration"
             )
         finally:
             try:

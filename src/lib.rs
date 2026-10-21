@@ -9,6 +9,7 @@ pub mod input;
 pub mod keys;
 pub mod llm;
 pub mod mime;
+pub mod pim;
 pub mod search;
 pub mod storage;
 pub mod tree;

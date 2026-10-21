@@ -1,5 +1,19 @@
 # Architecture and data model
 
+## Local calendar and contact collections
+
+`calendar.collections` and `contacts.books` configure independent vdirs, gated
+by their section's enabled flag. Numeric 0/1/2 selects Mail/Calendar/Contacts;
+mail account namespaces are selected with `:ns`. `pim::Snapshot` holds records
+identified by collection and original file path, not by UID alone. Original
+source is retained to patch only edited properties and reject stale writes.
+PIM reads and confirmed writes use the blocking worker and an independent request
+generation; mail navigation does not cancel confirmed PIM operations. The main
+loop refreshes collections every five seconds, deferring while a modal is open.
+See [pim.md](pim.md) for file semantics, supported fields and series-level editing.
+
+## Mail modules
+
 One Rust crate with explicit module boundaries:
 
 * `domain`: stable placement IDs, account/folder/message metadata, pages,
@@ -108,12 +122,22 @@ claimed without a benchmark.
 
 The assistant has a separate bounded event channel and cancellable async task,
 with its own run IDs independent of navigation generations. A conversation pins
-its initial account/message, survives closing the full-screen dialog, and starts
+its initial account/message, survives closing the centered 80%-width/height popup, and starts
 fresh only on an explicit new/global command. The LLM store adapter is independent
 of the UI adapter; tool I/O uses spawn_blocking and read-only search connections.
 Source numbers map back to exact placement IDs. Generated replies retain RFC
 reply headers and open in the composer. Move proposals are checked again against
 loaded destinations before the normal confirmed-write worker receives them.
+Calendar/contact tools are registered only for enabled collections and produce
+snapshot-backed PIM proposals. Applying one rechecks configuration and uses the
+PIM worker; its receipt updates the conversation. Mail search uses the same
+read-only MailTUI database as the UI, with no production store-scan fallback.
+The underlying mail view renders before the assistant; clearing is confined to
+the popup rectangle. Closing it restores the same view, row and focus. Codex
+model discovery uses paginated model/list on the same connection/home as account
+operations and displays model identifiers rather than display IDs. Discovery is
+informational; backend errors remain authoritative and are shown in the scrollable
+conversation, with nested JSON error messages unwrapped for readability.
 
 An 8-slot command channel feeds a single blocking store worker; a 16-slot
 event channel returns results. Folder requests within a scope share its

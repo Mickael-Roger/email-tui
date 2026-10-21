@@ -123,7 +123,7 @@ async fn one_list_nests_messages_below_their_folder_and_accounts_only_in_all_sco
             assert_eq!(row.depth, 2);
         }
     }
-    key(&mut app, '1');
+    command(&mut app, "ns work");
     settle(&mut app, &mut rx).await;
     assert_eq!(app.account_name(), "work");
     assert_eq!(app.messages.len(), 55);
@@ -200,7 +200,7 @@ async fn several_folders_unfold_independently_and_refold_without_losing_cached_m
     focus_folder(&mut app, "personal", "INBOX");
     app.action(Action::Collapse);
     insta::assert_snapshot!("tree_multiple_open_folders", capture(&mut app, 120, 44));
-    key(&mut app, '1');
+    command(&mut app, "ns work");
     settle(&mut app, &mut rx).await;
     insta::assert_snapshot!("tree_single_account", capture(&mut app, 120, 40));
     finish(app, rx, current, worker).await;
@@ -243,7 +243,7 @@ async fn folder_aliases_and_search_stay_in_messages_with_ancestor_context() {
         command(&mut app, alias);
         assert_eq!(app.view, View::Messages);
     }
-    key(&mut app, '1');
+    command(&mut app, "ns work");
     settle(&mut app, &mut rx).await;
     command(&mut app, "dir Projects/Rust/MailTUI");
     settle(&mut app, &mut rx).await;
@@ -262,7 +262,7 @@ async fn folder_aliases_and_search_stay_in_messages_with_ancestor_context() {
     assert!(!app.messages.is_empty());
     assert!(app.messages.iter().all(|m| m.id.account == "work"));
     assert_eq!(app.visible_message_indices().len(), app.messages.len());
-    key(&mut app, '2');
+    command(&mut app, "ns personal");
     settle(&mut app, &mut rx).await;
     assert_eq!(app.view, View::Messages);
     assert!(app.messages.iter().all(|m| m.id.account == "personal"));
@@ -421,7 +421,7 @@ async fn stale_events_cannot_replace_new_scope_and_search_can_cancel_initial_loa
     settle(&mut app, &mut rx).await;
     assert!(!app.searching());
     assert!(app.messages.is_empty()); // Returning restores the initially folded tree.
-    key(&mut app, '2');
+    command(&mut app, "ns personal");
     settle(&mut app, &mut rx).await;
     let ids: Vec<_> = app.messages.iter().map(|m| m.id.clone()).collect();
     app.event(Event::Error {
@@ -512,7 +512,7 @@ fn pages_keep_identical_ids_in_two_accounts_and_demo_mutations_scoped() {
 }
 
 #[test]
-fn active_keymap_has_no_conflicts_and_preserves_k9s_delete_and_namespace_keys() {
+fn active_keymap_has_no_conflicts_and_uses_numbers_for_resource_views() {
     mailtui::app::validate_bindings().unwrap();
     assert_eq!(
         mailtui::app::dispatch(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
@@ -525,7 +525,7 @@ fn active_keymap_has_no_conflicts_and_preserves_k9s_delete_and_namespace_keys() 
     );
     assert_eq!(
         mailtui::app::dispatch(KeyCode::Char('0').into()),
-        Some(Action::AccountSlot(0))
+        Some(Action::ViewSlot(0))
     );
     assert_eq!(mailtui::app::dispatch(KeyCode::Tab.into()), None);
 }
@@ -842,7 +842,7 @@ async fn fuzzy_move_directory_creation_and_composer_are_functional() {
         matches!(&app.overlay, Some(Overlay::CreateFolder { account, .. }) if account == "personal")
     );
     app.key(KeyCode::Esc.into());
-    key(&mut app, '1');
+    command(&mut app, "ns work");
     settle(&mut app, &mut rx).await;
     let id = first_mail(&app, "work", "INBOX");
     app.folders.push(Folder {

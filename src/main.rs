@@ -111,6 +111,7 @@ async fn main() -> Result<()> {
         start_worker_with_index(store, current.clone(), index_path.clone());
     let mut app = App::new(args.demo, config.ui.theme.clone(), current.clone(), tx);
     app.llm = config.llm.clone();
+    app.configure_pim(config.calendar.clone(), config.contacts.clone());
     app.reload(false);
     if let Some(size) = args.snapshot {
         let (w, h) = size
@@ -121,7 +122,9 @@ async fn main() -> Result<()> {
             (1..=500).contains(&w) && (1..=200).contains(&h),
             "Snapshot size out of bounds"
         );
-        app.event(events.recv().await.context("Worker stopped")?);
+        while app.busy || app.pim_loading {
+            app.event(events.recv().await.context("Worker stopped")?);
+        }
         let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(w, h))?;
         terminal.draw(|f| mailtui::tui::draw(f, &mut app, config.ui.preview_pane))?;
         let buffer = terminal.backend().buffer();
@@ -144,15 +147,18 @@ async fn main() -> Result<()> {
         let mut sender = mailtui::delivery::Sender::new(config.delivery.clone(), config.accounts.clone(), send_tx);
         let mut maintenance = index_path.clone().map(|path| mailtui::index::Maintenance::start(path, config.accounts.clone()));
         let mut index_requests = 0usize;
-        let mut assistant = config.llm.enabled.then(|| mailtui::llm::Assistant::new(config.llm.clone(), config.accounts.clone(), args.demo, index_path.clone()));
+        let mut assistant = config.llm.enabled.then(|| mailtui::llm::Assistant::new(config.llm.clone(), config.accounts.clone(), args.demo, index_path.clone()).with_pim(config.calendar.clone(),config.contacts.clone()));
         let mut changes = (!args.demo).then(|| mailtui::storage::Changes::watch(config.accounts.clone()));
         let mut previous_tokens = None;
         let mut animation = tokio::time::interval(Duration::from_millis(300));
+        let mut pim_poll = tokio::time::interval(Duration::from_secs(5));
+        pim_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         animation.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             terminal.draw(|frame| mailtui::tui::draw(frame, &mut app, config.ui.preview_pane))?;
             if app.quit { break; }
             tokio::select! {
+                _ = pim_poll.tick(), if !app.calendar_collections.is_empty() || !app.contact_books.is_empty() => app.reload_pim(),
                 event = async { assistant.as_mut().unwrap().events.recv().await }, if assistant.is_some() => if let Some(event) = event {
                     if event.run == app.ai.run && let mailtui::llm::Update::LoginUrl(url) = &event.update {
                         let command = &config.viewer.browser_command;

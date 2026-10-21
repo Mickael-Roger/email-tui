@@ -25,8 +25,8 @@ were needed to compile the minimal Neverest source probe.
 
 All of the checks above passed:
 
-* **45 Rust tests**: 15 module tests, 4 real pimdir adapter/refresh/index integration tests,
-  7 assistant integration tests and 19 workflow/UI tests. One additional opt-in real-Neverest SMTP test is
+* **58 Rust tests**: 20 module tests, 4 real pimdir adapter/refresh/index integration tests,
+  10 assistant integration tests, 5 calendar/contact integration tests and 19 workflow/UI tests. One additional opt-in real-Neverest SMTP test is
   ignored by default and can be run with an externally supplied Neverest binary.
 * **25 golden snapshots**: the single Messages tree at 40×12, 80×24,
   120×40 and 180×50; multiple opened folders, single-account mode and folded
@@ -39,7 +39,8 @@ All of the checks above passed:
 * Commands/aliases/quotes/escapes, invalid sort fields, grapheme editing,
   modal isolation, keymap collision checks, Ctrl+D deletion with Cancel as
   the default button, Tab/Enter acceptance, and Enter message reading.
-* Namespace-style 0/1/2 account switching, the synthetic all row in `:ns`,
+* Resource-style 0/1/2 view switching, optional calendar/contact configuration,
+  account switching via `:ns`, the synthetic all row in `:ns`,
   Enter/u activation, account scope persistence on Back, selection clearing
   on account changes, and scoped search (restriction before result LIMIT).
   Rendering options, mark-state behavior and cyan/black table styles are covered
@@ -102,6 +103,29 @@ All of the checks above passed:
   requests arriving before a turn acknowledgement. Byte-by-byte SSE decoding and
   account-scoped RFC thread graphs have module tests. Live provider credentials
   are not required; actual provider/OAuth service availability is not asserted.
+  Popup tests verify the exact 80% centered rectangle and unchanged background
+  cells/navigation in both general and reader views at 100×30, 80×24, 40×12 and
+  20×6. Model catalogue tests follow pagination, distinguish model slugs from
+  display IDs, and preserve readable backend refusals even for advertised models.
+  The PIM tool manifest and proposals run through Chat Completions, Responses
+  and the Codex subprocess, then `/apply N` writes actual ICS/vCards through
+  the existing worker. Module tests cover all PIM CRUD tools and disabled collections.
+  Database-only mail search is exercised with a store that panics on any mailbox
+  access; quoted subjects, apostrophes, literal mode, scope and concurrent WAL
+  updates are tested. Missing database/body errors preserve actionable responses
+  and allow subsequent indexed searches without a mailbox fallback.
+* Calendar/contact integration tests cover two calendars and two address books,
+  CRUD through the actual worker and modal inputs, invalid dates retaining forms,
+  typed vCard properties and secondary emails, Unicode line folding, original
+  filenames independent of UID, and preserved timezone/alarm/recurrence exceptions.
+  Stale writes/deletes fail after external file changes. Small-terminal rendering
+  and hidden disabled views are exercised. The PTY test additionally creates,
+  edits and deletes ICS/vCard files and observes an external change via the
+  actual five-second main-loop refresh timer.
+  A confirmed PIM write also survives mail navigation without closing a newer
+  mail composer. For independent format validation, run these tests with
+  `MAILTUI_PIM_PYTHON=/path/to/python` pointing to a Python environment containing
+  `icalendar` and `vobject`; the CRUD fixture is then parsed and validated by both.
 * `tests/refresh.rs` writes two new messages through a concurrent public owner,
   waits for the actual two-second observer and refreshes the existing App
   without a refresh key or restart. A second store changes while hidden;

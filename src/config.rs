@@ -10,6 +10,29 @@ pub struct Config {
     pub delivery: Delivery,
     pub llm: crate::llm::Config,
     pub accounts: Vec<AccountConfig>,
+    pub calendar: CalendarConfig,
+    pub contacts: ContactsConfig,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CalendarConfig {
+    pub enabled: bool,
+    pub collections: Vec<PimCollection>,
+}
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ContactsConfig {
+    pub enabled: bool,
+    pub books: Vec<PimCollection>,
+}
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PimCollection {
+    pub id: String,
+    pub label: String,
+    /// A khal/vdirsyncer calendar collection (.ics) or vdir address book (.vcf).
+    pub path: PathBuf,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -153,6 +176,30 @@ impl Config {
             }
             if !a.store.is_absolute() {
                 bail!("Account {}: store must be an absolute path", a.id);
+            }
+        }
+        for (kind, enabled, collections) in [
+            (
+                "calendar",
+                self.calendar.enabled,
+                &self.calendar.collections,
+            ),
+            ("contacts", self.contacts.enabled, &self.contacts.books),
+        ] {
+            let mut names = std::collections::HashSet::new();
+            for collection in collections {
+                if collection.id.trim().is_empty()
+                    || collection.label.trim().is_empty()
+                    || !names.insert(&collection.id)
+                {
+                    bail!("{kind}: collection IDs and labels must be nonempty and IDs unique");
+                }
+                if !collection.path.is_absolute() {
+                    bail!("{kind} {}: path must be absolute", collection.id);
+                }
+            }
+            if enabled && collections.is_empty() {
+                bail!("{kind}.enabled requires at least one configured collection");
             }
         }
         Ok(())

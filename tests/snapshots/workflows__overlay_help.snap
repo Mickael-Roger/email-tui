@@ -2,15 +2,15 @@
 source: tests/workflows.rs
 expression: "capture(&mut app, 80, 24)"
 ---
-<?>        Help              <m>        Move mail         <0> all
-<ctrl-d>   Delete            <c>        Compose mail      <1> work
+<?>        Help              <m>        Move mail         <0> Mail
+<ctrl-d>   Delete            <c>        Compose mail      Pending: 0
 <h/H┌─────────────── Keyboard help · ↑/↓ scroll · Esc close ───────────────┐
 <ctr│MailTUI · one Messages tree                                           │
 <pgd│                                                                      │
 <esc│Ctrl+a         Open or resume the optional mail assistant · :ai       │
-    │Ctrl+s         Save attachments from the opened message               │
+    │Ctrl+s         Save attachments / save calendar or contact form       │
 ┌───│:              Command mode · ↑/↓ history                             │───┐
-│Rel│/              Local full-text search · fuzzy result picker           │   │
+│Rel│/              Mail search / calendar or contact filter               │   │
 │Fro│?              Open this keyboard reference                           │   │
 │To:│Esc            Cancel / clear filter / previous view                  │   │
 │wor│q              Back; quit at root                                     │   │
@@ -18,9 +18,9 @@ expression: "capture(&mut app, 80, 24)"
 │Hel│↑              Previous tree row / scroll up                          │   │
 │   │PgDn           Page down                                              │   │
 │The│PgUp           Page up                                                │   │
-│Our│Ctrl+d         Move marked messages to Trash · confirmation           │   │
+│Our│Ctrl+d         Delete mail/calendar/contact item · confirmation       │   │
 │   │Ctrl+c         Press twice within 3 seconds to quit                   │   │
-│Che│Enter          Fold/unfold account or folder; read message; load more │   │
+│Che│Enter          Fold/read mail; view calendar event or contact         │   │
 │  -│Space          Toggle selected message (never an account or folder)   │   │
 │  -└──────────────────────────────────────────────────────────────────────┘   │
 └──────────────────────────────────────────────────────────────────────────────┘

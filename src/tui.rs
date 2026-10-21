@@ -79,10 +79,6 @@ pub fn draw(frame: &mut Frame, app: &mut App, _preview: bool) {
         frame.render_widget(Paragraph::new("MailTUI\nResize terminal\n:q to quit"), area);
         return;
     }
-    if matches!(app.overlay, Some(Overlay::Assistant)) {
-        assistant(frame, app, area, &p);
-        return;
-    }
     let compact = area.width < 50 || area.height < 15;
     let parts = Layout::vertical([
         Constraint::Length(if !app.show_header {
@@ -102,6 +98,128 @@ pub fn draw(frame: &mut Frame, app: &mut App, _preview: bool) {
     app.page_height = parts[1].height.saturating_sub(3) as usize;
     match app.view {
         View::Messages => messages(frame, app, parts[1], &p),
+        View::Calendar => {
+            let mut labels = vec!["START", "EVENT"];
+            let mut widths = vec![Constraint::Length(20), Constraint::Min(10)];
+            if area.width >= 60 {
+                labels.push("CALENDAR");
+                widths.push(Constraint::Length(14));
+            }
+            if area.width >= 90 {
+                labels.push("LOCATION");
+                widths.push(Constraint::Length(18));
+            }
+            if area.width >= 115 {
+                labels.push("END");
+                widths.push(Constraint::Length(20));
+            }
+            let rows = app
+                .pim_rows()
+                .into_iter()
+                .map(|i| {
+                    let event = &app.calendar_events[i];
+                    let mut cells = vec![
+                        crate::pim::display_date(&event.start),
+                        text(&format!(
+                            "{}{}",
+                            if event.recurrence.is_empty() {
+                                ""
+                            } else {
+                                "↻ "
+                            },
+                            event.summary
+                        )),
+                    ];
+                    if area.width >= 60 {
+                        cells.push(text(&event.collection_label));
+                    }
+                    if area.width >= 90 {
+                        cells.push(text(&event.location));
+                    }
+                    if area.width >= 115 {
+                        cells.push(crate::pim::display_date(&event.end));
+                    }
+                    Row::new(cells)
+                })
+                .collect();
+            table(
+                frame,
+                app,
+                parts[1],
+                &p,
+                &format!(
+                    " Calendar · {} entries{} ",
+                    app.pim_rows().len(),
+                    if app.pim_loading {
+                        " · refreshing"
+                    } else {
+                        ""
+                    }
+                ),
+                labels,
+                rows,
+                widths,
+            );
+        }
+        View::Contacts => {
+            let mut labels = vec!["NAME"];
+            let mut widths = vec![Constraint::Min(14)];
+            if area.width >= 45 {
+                labels.push("EMAIL");
+                widths.push(Constraint::Length(26));
+            }
+            if area.width >= 65 {
+                labels.push("ADDRESS BOOK");
+                widths.push(Constraint::Length(14));
+            }
+            if area.width >= 90 {
+                labels.push("PHONE");
+                widths.push(Constraint::Length(18));
+            }
+            if area.width >= 120 {
+                labels.push("ORGANIZATION");
+                widths.push(Constraint::Length(18));
+            }
+            let rows = app
+                .pim_rows()
+                .into_iter()
+                .map(|i| {
+                    let contact = &app.contacts[i];
+                    let mut cells = vec![text(&contact.name)];
+                    if area.width >= 45 {
+                        cells.push(text(&contact.email));
+                    }
+                    if area.width >= 65 {
+                        cells.push(text(&contact.book_label));
+                    }
+                    if area.width >= 90 {
+                        cells.push(text(&contact.phone));
+                    }
+                    if area.width >= 120 {
+                        cells.push(text(&contact.organization));
+                    }
+                    Row::new(cells)
+                })
+                .collect();
+            table(
+                frame,
+                app,
+                parts[1],
+                &p,
+                &format!(
+                    " Contacts · {} people{} ",
+                    app.pim_rows().len(),
+                    if app.pim_loading {
+                        " · refreshing"
+                    } else {
+                        ""
+                    }
+                ),
+                labels,
+                rows,
+                widths,
+            );
+        }
         View::Accounts => {
             let rows = app
                 .account_rows()
@@ -258,17 +376,31 @@ pub fn draw(frame: &mut Frame, app: &mut App, _preview: bool) {
                 .join("\n"),
         ),
     }
-    let context = app
-        .focused_folder()
-        .map(|(a, f)| format!("{} / {}", text(&a), text(&f)))
-        .unwrap_or_else(|| "account → folder → messages".into());
+    let context = if matches!(app.view, View::Calendar | View::Contacts) {
+        format!(
+            "{} collections · / filter · Enter details",
+            if app.view == View::Calendar {
+                app.calendar_collections.len()
+            } else {
+                app.contact_books.len()
+            }
+        )
+    } else {
+        app.focused_folder()
+            .map(|(a, f)| format!("{} / {}", text(&a), text(&f)))
+            .unwrap_or_else(|| "account → folder → messages".into())
+    };
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(
                 format!(
                     " {}({}) ",
                     app.view.name().to_lowercase(),
-                    text(app.account_name())
+                    if matches!(app.view, View::Calendar | View::Contacts) {
+                        "all collections".into()
+                    } else {
+                        text(app.account_name())
+                    }
                 ),
                 if app.theme == "no-color" {
                     p.selected
@@ -343,12 +475,14 @@ pub fn draw(frame: &mut Frame, app: &mut App, _preview: bool) {
     }
     if let Some(overlay) = &app.overlay {
         let (title,body) = match overlay {
-            Overlay::Assistant => return,
+            Overlay::Assistant => { assistant(frame, app, area, &p); return; },
             Overlay::Help => (" Keyboard help · ↑/↓ scroll · Esc close ",help("")),
+            Overlay::PimDetails(body) => (" Entry details · ↑/↓ scroll · Esc close ",body.clone()),
             Overlay::Aliases => (" Resource aliases · Esc close ","mail, messages        Single account/folder/mail tree\nfolders, directories  Focus folder in Messages (same view)\ndir <path>            Expand/focus folder in active account\naccounts, acc, ns      Account namespace selector\nns <account|all>       Switch account scope\ninbox                 Expand inbox in current scope\nunified, all          All accounts with inboxes expanded\nsearch <query>        Results grouped in the Messages tree\nmore                  Next page of focused folder\noutbox / status       Pending operations / diagnostics\nhelp / history        Keyboard reference / commands\nquit, q               Exit".into()),
             Overlay::Confirm { ids,confirm } => { delete_dialog(frame,app,area,&p,ids,*confirm); return; }
-            Overlay::Find { .. } | Overlay::Move { .. } | Overlay::CreateFolder { .. } | Overlay::Compose { .. } | Overlay::Files { .. } | Overlay::Attachments { .. } | Overlay::SaveAttachments { .. } => { form_dialog(frame, app, area, &p, overlay); return; }
+            Overlay::Find { .. } | Overlay::Move { .. } | Overlay::CreateFolder { .. } | Overlay::Compose { .. } | Overlay::Files { .. } | Overlay::Attachments { .. } | Overlay::SaveAttachments { .. } | Overlay::PimForm { .. } => { form_dialog(frame, app, area, &p, overlay); return; }
             Overlay::Quit => (" Outgoing mail ",format!("{} messages have not finished sending.\n\nEnter: quit · Esc: return",app.pending.len())),
+            Overlay::PimDelete { contact,index,confirm } => (" Confirm deletion ",format!("Delete {}?\n{}\n\n{} · n/Esc cancel",text(if *contact {app.contacts.get(*index).map(|c|c.name.as_str()).unwrap_or("contact")} else {app.calendar_events.get(*index).map(|e|e.summary.as_str()).unwrap_or("event")}),if !*contact && app.calendar_events.get(*index).is_some_and(|e|!e.recurrence.is_empty()){"This deletes the entire recurring series, including exceptions."}else{""},if *confirm{"[Delete selected] Enter confirms"}else{"[Cancel selected] Press y to select Delete"})),
             Overlay::Url(url) => (" Browser viewer · private URL ",format!("{}\n\n{url}\n\nThis bearer URL expires automatically.\nExit revokes all sessions.\nEsc: close",
                 if std::env::var_os("SSH_CONNECTION").is_some() || std::env::var_os("SSH_TTY").is_some() { "SSH detected: this URL belongs to the remote host.\nUse an explicit localhost port forward to access it locally." } else { "Open this URL in your browser:" })),
         };
@@ -368,7 +502,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, _preview: bool) {
                 .block(block(title, &p))
                 .wrap(Wrap { trim: false })
                 .scroll((
-                    if matches!(overlay, Overlay::Help) {
+                    if matches!(overlay, Overlay::Help | Overlay::PimDetails(_)) {
                         app.help_scroll.min(u16::MAX as usize) as u16
                     } else {
                         0
@@ -392,24 +526,38 @@ fn header(frame: &mut Frame, app: &App, area: Rect, p: &Palette, compact: bool) 
             Color::Magenta
         })
         .add_modifier(Modifier::BOLD);
-    let scopes = || {
-        std::iter::once((0, "all")).chain(
-            app.accounts
-                .iter()
-                .take(9)
-                .enumerate()
-                .map(|(i, a)| (i + 1, a.id.as_str())),
-        )
-    };
+    let mut views = vec![(
+        0,
+        "Mail",
+        !matches!(app.view, View::Calendar | View::Contacts),
+    )];
+    if !app.calendar_collections.is_empty() {
+        views.push((1, "Calendar", app.view == View::Calendar));
+    }
+    if !app.contact_books.is_empty() {
+        views.push((2, "Contacts", app.view == View::Contacts));
+    }
     if compact {
         let columns = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
             .split(area);
         frame.render_widget(
-            Paragraph::new("<m> Move mail\n<c> Compose mail\n<n> New directory").style(key_style),
+            Paragraph::new(
+                views
+                    .iter()
+                    .map(|(n, label, _)| format!("<{n}> {label}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            )
+            .style(key_style),
             columns[0],
         );
         frame.render_widget(
-            Paragraph::new("<enter> Fold/read\n<h/H> HTML\n<0..9> Accounts").style(key_style),
+            Paragraph::new(if matches!(app.view, View::Calendar | View::Contacts) {
+                "<c> Create · <e> Edit\n<enter> Details\n<Ctrl+D> Delete"
+            } else {
+                "<m> Move mail\n<c> Compose mail\n<:ns> Accounts"
+            })
+            .style(key_style),
             columns[1],
         );
         return;
@@ -424,6 +572,18 @@ fn header(frame: &mut Frame, app: &App, area: Rect, p: &Palette, compact: bool) 
     .spacing(1)
     .split(area);
     let hints = match app.view {
+        View::Calendar => vec![
+            ("<c>", "New event"),
+            ("<e>", "Edit event"),
+            ("<ctrl-d>", "Delete event"),
+            ("<0>", "Mail"),
+        ],
+        View::Contacts => vec![
+            ("<c>", "New contact"),
+            ("<e>", "Edit contact"),
+            ("<ctrl-d>", "Delete contact"),
+            ("<0>", "Mail"),
+        ],
         View::Accounts => vec![
             ("<?>", "Help"),
             ("<enter/u>", "Use account"),
@@ -448,14 +608,25 @@ fn header(frame: &mut Frame, app: &App, area: Rect, p: &Palette, compact: bool) 
             ("</>", "Local search"),
         ],
     };
-    let extra = [
-        ("<m>", "Move mail"),
-        ("<c>", "Compose mail"),
-        ("<n>", "New directory"),
-        ("<space>", "Mark mail"),
-        ("<ctrl-c>", "Twice to quit"),
-        ("<esc>", "Back"),
-    ];
+    let extra = if matches!(app.view, View::Calendar | View::Contacts) {
+        [
+            ("<enter>", "Details"),
+            ("</>", "Filter all collections"),
+            ("<:reload>", "Reload files"),
+            ("<?> ", "Help"),
+            ("<ctrl-c>", "Twice to quit"),
+            ("<esc>", "Back"),
+        ]
+    } else {
+        [
+            ("<m>", "Move mail"),
+            ("<c>", "Compose mail"),
+            ("<n>", "New directory"),
+            ("<space>", "Mark mail"),
+            ("<ctrl-c>", "Twice to quit"),
+            ("<esc>", "Back"),
+        ]
+    };
     for (column, hints) in [hints, extra.to_vec()].into_iter().enumerate() {
         frame.render_widget(
             Paragraph::new(
@@ -474,13 +645,14 @@ fn header(frame: &mut Frame, app: &App, area: Rect, p: &Palette, compact: bool) 
     }
     frame.render_widget(
         Paragraph::new(
-            scopes()
-                .map(|(i, name)| {
+            views
+                .into_iter()
+                .map(|(i, name, active)| {
                     Line::from(vec![
                         Span::styled(format!("<{i}> "), scope_style),
                         Span::styled(
                             text(name),
-                            if name == app.account_name() {
+                            if active {
                                 Style::default().fg(p.account).add_modifier(Modifier::BOLD)
                             } else {
                                 Style::default().fg(p.muted)
@@ -761,15 +933,18 @@ fn table(
 }
 fn assistant(frame: &mut Frame, app: &mut App, area: Rect, p: &Palette) {
     use unicode_segmentation::UnicodeSegmentation;
-    let border = block(format!(" Assistant · {} ", text(&app.llm.label())), p);
-    let inner = border.inner(area);
-    frame.render_widget(border, area);
+    let popup = centered(area, 80, 80);
+    frame.render_widget(Clear, popup);
+    let border = block(format!(" Assistant · {} ", text(&app.llm.label())), p).style(p.base);
+    let inner = border.inner(popup);
+    frame.render_widget(border, popup);
+    let compact = inner.height < 14 || inner.width < 65;
     let parts = Layout::vertical([
-        Constraint::Length(2),
+        Constraint::Length(if compact { 1 } else { 2 }),
         Constraint::Min(1),
-        Constraint::Length(2),
-        Constraint::Length(2),
-        Constraint::Length(2),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(if compact { 1 } else { 2 }),
     ])
     .split(inner);
     let anchor = app
@@ -779,10 +954,17 @@ fn assistant(frame: &mut Frame, app: &mut App, area: Rect, p: &Palette) {
         .map(|m| text(&m.subject))
         .unwrap_or_else(|| "Global mail conversation".into());
     frame.render_widget(
-        Paragraph::new(format!(
-            "Context: {anchor}\nSearch scope: {}",
-            text(app.ai.account.as_deref().unwrap_or("all accounts"))
-        ))
+        Paragraph::new(if compact {
+            format!(
+                "Scope: {} · {anchor}",
+                text(app.ai.account.as_deref().unwrap_or("all accounts"))
+            )
+        } else {
+            format!(
+                "Context: {anchor}\nSearch scope: {}",
+                text(app.ai.account.as_deref().unwrap_or("all accounts"))
+            )
+        })
         .style(Style::default().fg(p.accent)),
         parts[0],
     );
@@ -817,16 +999,23 @@ fn assistant(frame: &mut Frame, app: &mut App, area: Rect, p: &Palette) {
     app.page_height = parts[1].height.max(1) as usize;
     frame.render_widget(
         Paragraph::new(format!(
-            "{}{}\n{}",
+            "{}{}",
             if app.ai.busy { "● " } else { "" },
             text(&app.ai.status),
-            text(&app.toast)
         ))
         .style(Style::default().fg(p.hot)),
         parts[2],
     );
     edit_field(frame, parts[3], "Ask:", &app.ai.input, true, p);
-    frame.render_widget(Paragraph::new("Enter send · Esc close/resume · PgUp/PgDn scroll · /stop interrupt\n/new /global /login /logout /status · /open N source · /apply N proposal").style(Style::default().fg(p.muted)),parts[4]);
+    let help = if compact {
+        "Enter send · Esc close · /stop"
+    } else {
+        "Enter send · Esc close/resume · PgUp/PgDn scroll · /stop interrupt\n/models · /open N source · /apply N proposal · /new /global /status"
+    };
+    frame.render_widget(
+        Paragraph::new(help).style(Style::default().fg(p.muted)),
+        parts[4],
+    );
 }
 
 fn edit_field(
@@ -879,6 +1068,21 @@ fn form_dialog(frame: &mut Frame, app: &App, area: Rect, p: &Palette, overlay: &
         Overlay::Move { .. } => " Move mail · fuzzy directory filter ",
         Overlay::CreateFolder { .. } => " Create directory ",
         Overlay::Files { .. } => " Attach files · fuzzy filter · multiple selection ",
+        Overlay::PimForm {
+            contact, original, ..
+        } => {
+            if *contact {
+                if original.is_some() {
+                    " Edit contact · Tab field · Enter save "
+                } else {
+                    " New contact · Tab field · Enter save "
+                }
+            } else if original.is_some() {
+                " Edit event · Tab field · Enter save "
+            } else {
+                " New event · Tab field · Enter save "
+            }
+        }
         _ => " Compose email ",
     };
     let border = block(title, p).style(p.base);
@@ -1109,6 +1313,93 @@ fn form_dialog(frame: &mut Frame, app: &App, area: Rect, p: &Palette, overlay: &
                 ))
                 .style(Style::default().fg(p.hot)),
                 parts[3],
+            );
+        }
+        Overlay::PimForm {
+            contact,
+            collection,
+            original,
+            fields,
+            field,
+            error,
+            ..
+        } => {
+            let labels: &[&str] = if *contact {
+                &["Name", "Email", "Phone", "Organization"]
+            } else {
+                &[
+                    "Summary",
+                    "Start (ICS date/time)",
+                    "End (optional)",
+                    "Location",
+                    "Description",
+                    "Repeat rule (RRULE)",
+                ]
+            };
+            let parts = Layout::vertical([
+                Constraint::Min(1),
+                Constraint::Length(u16::from(error.is_some())),
+                Constraint::Length(if inner.height >= 8 { 2 } else { 1 }),
+            ])
+            .split(inner);
+            let height = parts[0].height as usize;
+            let start = field.saturating_sub(height.saturating_sub(1));
+            for position in start..(start + height).min(fields.len() + 1) {
+                let rect = Rect::new(
+                    parts[0].x,
+                    parts[0].y + (position - start) as u16,
+                    parts[0].width,
+                    1,
+                );
+                if position == 0 {
+                    let groups = if *contact {
+                        &app.contact_books
+                    } else {
+                        &app.calendar_collections
+                    };
+                    let label = groups
+                        .get(*collection)
+                        .map(|c| c.label.as_str())
+                        .unwrap_or("unavailable");
+                    frame.render_widget(
+                        Paragraph::new(format!(
+                            "{}: {} {}",
+                            if *contact { "Address book" } else { "Calendar" },
+                            text(label),
+                            if original.is_some() {
+                                "(existing entry)"
+                            } else {
+                                "←/→ choose"
+                            }
+                        ))
+                        .style(if *field == 0 {
+                            p.selected
+                        } else {
+                            p.base
+                        }),
+                        rect,
+                    );
+                } else {
+                    edit_field(
+                        frame,
+                        rect,
+                        &format!("{}:", labels[position - 1]),
+                        &fields[position - 1],
+                        position == *field && !app.pim_pending,
+                        p,
+                    );
+                }
+            }
+            if let Some(error) = error {
+                frame.render_widget(
+                    Paragraph::new(text(error)).style(Style::default().fg(p.hot)),
+                    parts[1],
+                );
+            }
+            frame.render_widget(
+                Paragraph::new(if app.pim_pending{"Saving locally…"}else if *contact{"Tab fields · Ctrl+S save · Esc cancel\n←/→ choose address book in first field"}else{"Tab fields · Ctrl+S save · Esc cancel\nDates: YYYYMMDD or YYYYMMDDTHHMMSS[Z] · all-day end exclusive"})
+                    .style(Style::default().fg(p.muted)),
+                parts[2],
             );
         }
         Overlay::Move { ids, query, row } => {

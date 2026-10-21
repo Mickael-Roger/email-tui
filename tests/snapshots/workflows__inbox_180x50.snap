@@ -2,10 +2,10 @@
 source: tests/workflows.rs
 expression: "capture(&mut app, w, h)"
 ---
-<?>        Help                                                 <m>        Move mail                                            <0> all                            __  __       _ _
-<ctrl-d>   Delete mail                                          <c>        Compose mail                                         <1> work                          |  \/  | __ _(_) |
-<enter>    Unfold / read                                        <n>        New directory                                        <2> personal                      | |\/| |/ _` | | |
-<h/H>      HTML / remote                                        <space>    Mark mail                                            Pending: 0                        | |  | | (_| | | |
+<?>        Help                                                 <m>        Move mail                                            <0> Mail                           __  __       _ _
+<ctrl-d>   Delete mail                                          <c>        Compose mail                                         Pending: 0                        |  \/  | __ _(_) |
+<enter>    Unfold / read                                        <n>        New directory                                                                          | |\/| |/ _` | | |
+<h/H>      HTML / remote                                        <space>    Mark mail                                                                              | |  | | (_| | | |
 </>        Local search                                         <ctrl-c>   Twice to quit                                                                          |_|  |_|\__,_|_|_|
                                                                 <esc>      Back                                                                                          T U I
 

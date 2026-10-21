@@ -2,9 +2,9 @@
 source: tests/workflows.rs
 expression: "capture(&mut app, w, h)"
 ---
-<m> Move mail       <enter> Fold/read
-<c> Compose mail    <h/H> HTML
-<n> New directory   <0..9> Accounts
+<0> Mail            <m> Move mail
+                    <c> Compose mail
+                    <:ns> Accounts
 ┌ Messages(all)[110 mail / 14 folders] ┐
 │NAME / SUBJECT                        │
 │▾ 📬 work (48/72)                     │

@@ -16,6 +16,7 @@ struct Rpc {
     next: u64,
     pending: VecDeque<Value>,
     bytes: usize,
+    model: String,
     _directory: tempfile::TempDir,
 }
 impl Rpc {
@@ -61,6 +62,7 @@ impl Rpc {
             next: 0,
             pending: VecDeque::new(),
             bytes: 0,
+            model: config.model.clone(),
             _directory: directory,
         };
         rpc.request("initialize",json!({"clientInfo":{"name":"mailtui","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":true}})).await?;
@@ -96,10 +98,7 @@ impl Rpc {
             let value = self.read().await?;
             if value["id"] == id && value.get("method").is_none() {
                 if let Some(error) = value.get("error") {
-                    bail!(
-                        "Codex {method}: {}",
-                        error["message"].as_str().unwrap_or("request rejected")
-                    );
+                    bail!("Codex {method}: {}", failure(&self.model, error));
                 }
                 return Ok(value["result"].clone());
             }
@@ -117,6 +116,90 @@ impl Rpc {
             self.read().await
         }
     }
+}
+
+fn error_message(value: &Value) -> String {
+    fn extract(value: &Value, depth: usize) -> Option<String> {
+        if depth == 8 {
+            return None;
+        }
+        if let Some(text) = value.as_str() {
+            if let Ok(json) = serde_json::from_str::<Value>(text)
+                && let Some(message) = extract(&json, depth + 1)
+            {
+                return Some(message);
+            }
+            return Some(text.to_string());
+        }
+        value
+            .get("message")
+            .and_then(|v| extract(v, depth + 1))
+            .or_else(|| value.get("error").and_then(|v| extract(v, depth + 1)))
+    }
+    extract(value, 0)
+        .unwrap_or_else(|| "request failed".into())
+        .chars()
+        .take(4000)
+        .collect()
+}
+
+fn failure(model: &str, value: &Value) -> String {
+    let message = error_message(value);
+    let lower = message.to_lowercase();
+    if lower.contains("model")
+        && (lower.contains("not supported")
+            || lower.contains("not found")
+            || lower.contains("does not exist"))
+    {
+        format!(
+            "{message}\nConfigured model: {model} · Codex ChatGPT OAuth.\nUse :ai models (or /models) to inspect this Codex instance's catalogue.\nAvailability depends on the account/workspace, client version and rollout. No model was substituted."
+        )
+    } else {
+        message
+    }
+}
+
+async fn models(rpc: &mut Rpc) -> Result<Vec<String>> {
+    let mut cursor: Option<String> = None;
+    let mut seen = std::collections::HashSet::new();
+    let mut models = vec![];
+    for _ in 0..16 {
+        let page = rpc
+            .request(
+                "model/list",
+                json!({"cursor":cursor,"limit":100,"includeHidden":false}),
+            )
+            .await?;
+        for model in page["data"]
+            .as_array()
+            .context("Codex model/list response missing data")?
+        {
+            if model["hidden"].as_bool().unwrap_or(false) {
+                continue;
+            }
+            let id = model["model"]
+                .as_str()
+                .filter(|m| !m.is_empty())
+                .context("Codex model/list entry missing model identifier")?;
+            models.push(id.to_string());
+        }
+        ensure!(models.len() <= 1000, "Codex model catalogue too large");
+        match page["nextCursor"].as_str() {
+            Some(next) => {
+                ensure!(
+                    seen.insert(next.to_string()),
+                    "Codex model/list repeated its cursor"
+                );
+                cursor = Some(next.into());
+            }
+            None => {
+                models.sort();
+                models.dedup();
+                return Ok(models);
+            }
+        }
+    }
+    bail!("Codex model catalogue pagination limit reached")
 }
 impl Drop for Rpc {
     fn drop(&mut self) {
@@ -161,7 +244,8 @@ pub(super) async fn account(
                 {
                     ensure!(
                         value["params"]["success"] == true,
-                        "Codex login failed or was cancelled"
+                        "Codex login failed or was cancelled: {}",
+                        error_message(&value["params"]["error"])
                     );
                     break;
                 }
@@ -184,6 +268,27 @@ pub(super) async fn account(
                     .unwrap_or("not connected; use :ai login")
             )
         }
+        Command::Models(_) => {
+            let account = rpc
+                .request("account/read", json!({"refreshToken":true}))
+                .await?;
+            ensure!(
+                account["account"]["type"] == "chatgpt",
+                "Codex OAuth is not connected; use :ai login"
+            );
+            let models = models(&mut rpc).await?;
+            let count = models.len();
+            sender
+                .send(Event {
+                    run,
+                    update: Update::Models(models),
+                })
+                .await?;
+            format!(
+                "Codex catalogue · {count} models · configured: {}",
+                config.model
+            )
+        }
         _ => bail!("Invalid account operation"),
     };
     sender
@@ -204,7 +309,7 @@ pub(super) async fn turn(config: &Config, turn: &Turn, tools: &mut Tools) -> Res
         account["account"]["type"] == "chatgpt",
         "Codex OAuth is not connected; use :ai login"
     );
-    let specs: Vec<_> = tools::specs().into_iter().map(|s| json!({"type":"function","name":s["name"],"description":s["description"],"inputSchema":s["parameters"]})).collect();
+    let specs: Vec<_> = tools.specs()?.into_iter().map(|s| json!({"type":"function","name":s["name"],"description":s["description"],"inputSchema":s["parameters"]})).collect();
     let thread = rpc.request("thread/start",json!({
         "model":config.model,"modelProvider":"openai","approvalPolicy":"never","sandbox":"read-only","ephemeral":true,
         "baseInstructions":prompt(turn),"dynamicTools":specs,
@@ -220,7 +325,7 @@ pub(super) async fn turn(config: &Config, turn: &Turn, tools: &mut Tools) -> Res
     }
     rpc.request(
         "turn/start",
-        json!({"threadId":id,"input":[{"type":"text","text":input,"text_elements":[]}]}),
+        json!({"threadId":id,"model":config.model,"input":[{"type":"text","text":input,"text_elements":[]}]}),
     )
     .await?;
     let mut streamed = std::collections::HashSet::new();
@@ -260,25 +365,29 @@ pub(super) async fn turn(config: &Config, turn: &Turn, tools: &mut Tools) -> Res
                     .context("Missing Codex tool name")?;
                 let args = event["params"]["arguments"].clone();
                 let args = if let Some(s) = args.as_str() {
-                    serde_json::from_str(s)?
+                    serde_json::from_str(s)
                 } else {
-                    args
+                    Ok(args)
                 };
-                let result = tools.result(name, args).await;
+                let result = match args {
+                    Ok(args) => tools.result(name, args).await,
+                    Err(_) => {
+                        json!({"error":"Invalid JSON tool arguments; retry with a JSON object"})
+                    }
+                };
                 rpc.write(json!({"id":event["id"],"result":{"contentItems":[{"type":"inputText","text":result.to_string()}],"success":result.get("error").is_none()}})).await?;
             }
             "turn/completed" => {
                 ensure!(
                     event["params"]["turn"]["status"] == "completed",
-                    "Codex turn failed or was interrupted"
+                    "Codex turn failed or was interrupted: {}",
+                    failure(&config.model, &event["params"]["turn"]["error"])
                 );
                 return Ok(());
             }
             "error" => bail!(
                 "Codex: {}",
-                event["params"]["error"]["message"]
-                    .as_str()
-                    .unwrap_or("generation failed")
+                failure(&config.model, &event["params"]["error"])
             ),
             _ if event.get("method").is_some() && event.get("id").is_some() => {
                 rpc.write(json!({"id":event["id"],"error":{"code":-32601,"message":"Only MailTUI mail tools are available"}})).await?;

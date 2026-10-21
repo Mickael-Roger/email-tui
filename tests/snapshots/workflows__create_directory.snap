@@ -2,8 +2,8 @@
 source: tests/workflows.rs
 expression: "capture(&mut app, 80, 24)"
 ---
-<?>        Help              <m>        Move mail         <0> all
-<ctrl-d>   Delete mail       <c>        Compose mail      <1> work
+<?>        Help              <m>        Move mail         <0> Mail
+<ctrl-d>   Delete mail       <c>        Compose mail      Pending: 0
 <ent┌────────────────────────── Create directory ──────────────────────────┐
 <h/H│Account: work                                                         │
 </> │Parent: / (Tab changes)                                               │

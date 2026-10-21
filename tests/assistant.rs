@@ -28,6 +28,209 @@ fn config() -> Config {
     config.auth.api_key_env = "PATH".into();
     config
 }
+
+#[tokio::test]
+async fn calendar_contact_tools_work_on_chat_responses_and_codex_and_apply_through_the_worker() {
+    use mailtui::config::{CalendarConfig, ContactsConfig, PimCollection};
+    for transport in ["chat", "responses", "codex"] {
+        let root = tempfile::tempdir().unwrap();
+        let cal_path = root.path().join("cal");
+        let book_path = root.path().join("book");
+        let calendar = CalendarConfig {
+            enabled: true,
+            collections: vec![PimCollection {
+                id: "cal".into(),
+                label: "Calendar".into(),
+                path: cal_path.clone(),
+            }],
+        };
+        let contacts = ContactsConfig {
+            enabled: true,
+            books: vec![PimCollection {
+                id: "book".into(),
+                label: "Book".into(),
+                path: book_path.clone(),
+            }],
+        };
+        let mut cfg = config();
+        let server = if transport == "codex" {
+            cfg.provider = Provider::Codex;
+            cfg.auth.method = AuthMethod::CodexOauth;
+            cfg.codex_home = Some(root.path().join("codex"));
+            cfg.codex_command = vec![
+                "python3".into(),
+                format!(
+                    "{}/tests/fixtures/codex_mock.py",
+                    env!("CARGO_MANIFEST_DIR")
+                ),
+            ];
+            None
+        } else {
+            let responses = transport == "responses";
+            let requests = Arc::new(Mutex::new(0usize));
+            let handler = move |State(step): State<Arc<Mutex<usize>>>, Json(body): Json<Value>| async move {
+                let round = {
+                    let mut step = step.lock().unwrap();
+                    let current = *step;
+                    *step += 1;
+                    current
+                };
+                let tools = body["tools"].as_array().unwrap();
+                for name in [
+                    "list_calendars",
+                    "list_address_books",
+                    "search_events",
+                    "search_contacts",
+                    "read_event",
+                    "read_contact",
+                    "propose_create_event",
+                    "propose_update_contact",
+                    "propose_delete_event",
+                ] {
+                    assert!(
+                        tools.iter().any(|t| if responses {
+                            t["name"] == name
+                        } else {
+                            t["function"]["name"] == name
+                        }),
+                        "Missing {name}"
+                    );
+                }
+                let calls = [
+                    ("calendars", "list_calendars", json!({})),
+                    ("books", "list_address_books", json!({})),
+                    (
+                        "event",
+                        "propose_create_event",
+                        json!({"calendar":"cal","summary":"LLM meeting","start":"20261201T090000Z","end":"20261201T100000Z"}),
+                    ),
+                    (
+                        "contact",
+                        "propose_create_contact",
+                        json!({"book":"book","name":"LLM contact","email":"person@example.test"}),
+                    ),
+                ];
+                let data = if round == 0 {
+                    if responses {
+                        json!({"type":"response.completed","response":{"output":calls.iter().map(|(id,name,args)|json!({"type":"function_call","id":id,"call_id":id,"name":name,"arguments":args.to_string()})).collect::<Vec<_>>()}})
+                    } else {
+                        json!({"choices":[{"delta":{"tool_calls":calls.iter().enumerate().map(|(i,(id,name,args))|json!({"index":i,"id":id,"type":"function","function":{"name":name,"arguments":args.to_string()}})).collect::<Vec<_>>()} ,"finish_reason":"tool_calls"}]})
+                    }
+                } else {
+                    let messages = body[if responses { "input" } else { "messages" }]
+                        .as_array()
+                        .unwrap();
+                    for (id, _, _) in &calls {
+                        let message = messages
+                            .iter()
+                            .find(|m| {
+                                if responses {
+                                    m["type"] == "function_call_output" && m["call_id"] == *id
+                                } else {
+                                    m["role"] == "tool" && m["tool_call_id"] == *id
+                                }
+                            })
+                            .unwrap();
+                        let value: Value = serde_json::from_str(
+                            message[if responses { "output" } else { "content" }]
+                                .as_str()
+                                .unwrap(),
+                        )
+                        .unwrap();
+                        assert!(value.get("error").is_none(), "{value}");
+                        if *id == "event" || *id == "contact" {
+                            assert_eq!(value["applied"], false);
+                        }
+                    }
+                    if responses {
+                        json!({"type":"response.completed","response":{"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Proposals ready"}]}]}})
+                    } else {
+                        json!({"choices":[{"delta":{"content":"Proposals ready"},"finish_reason":"stop"}]})
+                    }
+                };
+                Response::builder()
+                    .header("content-type", "text/event-stream")
+                    .body(Body::from(format!("data: {data}\n\ndata: [DONE]\n\n")))
+                    .unwrap()
+            };
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            cfg.endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
+            if responses {
+                cfg.api = Api::Responses;
+            }
+            let router = Router::new()
+                .route(
+                    if responses {
+                        "/v1/responses"
+                    } else {
+                        "/v1/chat/completions"
+                    },
+                    post(handler),
+                )
+                .with_state(requests);
+            Some(tokio::spawn(async move {
+                axum::serve(listener, router).await.unwrap();
+            }))
+        };
+        let current = Arc::new(AtomicU64::new(0));
+        let (tx, mut storage, worker) = start_worker(Box::new(DemoStore::new()), current.clone());
+        let mut app = App::new(true, "no-color".into(), current, tx);
+        app.llm = cfg.clone();
+        app.configure_pim(calendar.clone(), contacts.clone());
+        while app.pim_loading {
+            app.event(storage.recv().await.unwrap());
+        }
+        app.execute("ai");
+        let run = app.ai.run;
+        let mut assistant =
+            llm::Assistant::new(cfg, vec![], true, None).with_pim(calendar, contacts);
+        if transport == "codex" {
+            assistant.request(Command::Login(100));
+            assert!(matches!(
+                collect(&mut assistant).await.last().unwrap().update,
+                Update::Finished
+            ));
+        }
+        assistant.request(Command::Turn(Box::new(turn(run))));
+        for event in collect(&mut assistant).await {
+            assert!(
+                !matches!(event.update, Update::Error(_)),
+                "{transport}: {event:?}"
+            );
+            app.ai_event(event);
+        }
+        assert_eq!(app.ai.proposals.len(), 2, "{transport}");
+        assert!(!cal_path.exists());
+        assert!(!book_path.exists());
+        for n in 1..=2 {
+            app.paste(&format!("/apply {n}"));
+            app.key(KeyCode::Enter.into());
+            assert!(app.pim_pending);
+            while app.pim_pending {
+                app.event(
+                    tokio::time::timeout(Duration::from_secs(5), storage.recv())
+                        .await
+                        .unwrap()
+                        .unwrap(),
+                );
+            }
+            assert!(app.ai.proposals[n - 1].is_none());
+            assert!(matches!(app.overlay, Some(Overlay::Assistant)));
+        }
+        assert_eq!(app.calendar_events[0].summary, "LLM meeting");
+        assert_eq!(app.contacts[0].email, "person@example.test");
+        assert!(app.ai.text().contains("operation applied locally"));
+        app.paste("/apply 1");
+        app.key(KeyCode::Enter.into());
+        assert!(!app.pim_pending);
+        drop(app);
+        drop(storage);
+        worker.await.unwrap();
+        if let Some(server) = server {
+            server.abort();
+        }
+    }
+}
 fn anchor() -> Message {
     DemoStore::new()
         .messages(
@@ -464,6 +667,114 @@ async fn codex_stdio_oauth_and_dynamic_tools_use_the_same_mail_layer() {
     assert!(
         matches!(&collect(&mut assistant).await.last().unwrap().update,Update::Error(e) if e.contains("not connected"))
     );
+}
+
+#[tokio::test]
+async fn codex_model_catalogue_is_paginated_and_backend_rejections_are_readable() {
+    let home = tempfile::tempdir().unwrap();
+    let mut cfg = Config {
+        provider: Provider::Codex,
+        model: "gpt-6-luna".into(),
+        codex_home: Some(home.path().into()),
+        codex_command: vec![
+            "python3".into(),
+            format!(
+                "{}/tests/fixtures/codex_mock.py",
+                env!("CARGO_MANIFEST_DIR")
+            ),
+        ],
+        ..config()
+    };
+    cfg.auth.method = AuthMethod::CodexOauth;
+    let mut assistant = llm::Assistant::new(cfg.clone(), vec![], true, None);
+    assistant.request(Command::Login(1));
+    assert!(matches!(
+        collect(&mut assistant).await.last().unwrap().update,
+        Update::Finished
+    ));
+    assistant.request(Command::Models(2));
+    let catalogue = collect(&mut assistant).await;
+    assert!(
+        catalogue
+            .iter()
+            .all(|e| !matches!(e.update, Update::Error(_))),
+        "{catalogue:?}"
+    );
+    assert!(catalogue.iter().any(|e| matches!(&e.update,Update::Models(models) if models == &vec!["gpt-6-luna".to_string(),"test-model".to_string()])));
+    // A catalogue entry is not a guarantee of account/client entitlement. Do
+    // not substitute a model or block inference based solely on the catalogue.
+    assistant.request(Command::Turn(Box::new(turn(3))));
+    let result = collect(&mut assistant).await;
+    let Update::Error(error) = &result.last().unwrap().update else {
+        panic!("Missing backend rejection: {result:?}");
+    };
+    assert!(error.contains("The 'gpt-6-luna' model is not supported"));
+    assert!(error.contains(":ai models"));
+    assert!(!error.contains("{\"type\""));
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let mut app = App::new(true, "k9s-dark".into(), Arc::new(AtomicU64::new(0)), tx);
+    app.llm = cfg;
+    app.execute("ai");
+    let run = app.ai.run;
+    app.ai_event(llm::Event {
+        run,
+        update: Update::Error(error.clone()),
+    });
+    assert!(app.ai.text().contains(error));
+    app.paste("/models");
+    app.key(KeyCode::Enter.into());
+    assert!(matches!(app.ai.commands.back(), Some(Command::Models(_))));
+    assert_eq!(app.completions("ai mod"), vec!["ai models"]);
+}
+
+#[test]
+fn assistant_popup_preserves_mail_background_and_navigation_at_every_size() {
+    fn render(app: &mut App, width: u16, height: u16) -> ratatui::buffer::Buffer {
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|f| mailtui::tui::draw(f, app, false))
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let mut app = App::new(true, "k9s-dark".into(), Arc::new(AtomicU64::new(0)), tx);
+    app.llm = config();
+    let store = DemoStore::new();
+    app.accounts = store.accounts();
+    app.folders = store.folders().unwrap();
+    app.detail = Some(anchor());
+    app.parsed = Some(mailtui::mime::parse(&store.raw(&anchor().id).unwrap()).unwrap());
+    for view in [View::Messages, View::Detail] {
+        app.view = view;
+        for (width, height) in [(100, 30), (80, 24), (40, 12), (20, 6)] {
+            let before = render(&mut app, width, height);
+            let row = app.row;
+            app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL));
+            let after = render(&mut app, width, height);
+            let w = width * 80 / 100;
+            let h = height * 80 / 100;
+            let x0 = (width - w) / 2;
+            let y0 = (height - h) / 2;
+            assert_eq!(after[(x0, y0)].symbol(), "┌");
+            assert_eq!(after[(x0 + w - 1, y0 + h - 1)].symbol(), "┘");
+            for y in 0..height {
+                for x in 0..width {
+                    if x < x0 || x >= x0 + w || y < y0 || y >= y0 + h {
+                        assert_eq!(
+                            after[(x, y)],
+                            before[(x, y)],
+                            "Background changed at ({x},{y}) in {width}x{height}"
+                        );
+                    }
+                }
+            }
+            app.key(KeyCode::Esc.into());
+            assert_eq!(app.view, view);
+            assert_eq!(app.row, row);
+            assert_eq!(render(&mut app, width, height), before);
+        }
+    }
 }
 
 #[test]

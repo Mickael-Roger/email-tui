@@ -160,6 +160,15 @@ impl SearchIndex {
         {
             return self.structured(text, account);
         }
+        self.literal(text, account)
+    }
+    /// Literal text mode never interprets punctuation as search operators.
+    pub fn literal(&self, text: &str, account: Option<&str>) -> Result<Vec<Message>> {
+        let _snapshot = if self.db.is_autocommit() {
+            Some(self.db.unchecked_transaction()?)
+        } else {
+            None
+        };
         let mut found = if text.trim().is_empty() {
             vec![]
         } else {

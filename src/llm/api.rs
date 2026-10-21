@@ -32,7 +32,7 @@ pub(super) async fn turn(config: &Config, turn: &Turn, tools: &mut Tools) -> Res
             .iter()
             .map(|m| json!({"role":m.role,"content":m.content})),
     );
-    let specs: Vec<_> = tools::specs().into_iter().map(|s| if responses {
+    let specs: Vec<_> = tools.specs()?.into_iter().map(|s| if responses {
         json!({"type":"function","name":s["name"],"description":s["description"],"parameters":s["parameters"],"strict":false})
     } else { json!({"type":"function","function":s}) }).collect();
     let url = format!(

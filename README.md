@@ -1,7 +1,11 @@
 # MailTUI
 
-Client email TUI **local-first**, en Rust, inspiré de k9s. La navigation
-utilise **une seule vue `Messages`**, une seule table et un seul curseur :
+Client email TUI **local-first**, en Rust, inspiré de k9s, avec calendriers et
+contacts locaux facultatifs. Les touches numériques sélectionnent les vues :
+**`0` Mail**, **`1` Calendrier**, **`2` Contacts**. Les deux dernières ne sont
+disponibles que si elles sont activées et configurées dans le TOML.
+
+La navigation mail utilise **une seule table `Messages`** et un seul curseur :
 
 ```text
 ▸ work
@@ -9,7 +13,7 @@ utilise **une seule vue `Messages`**, une seule table et un seul curseur :
 ```
 
 Dans le scope **`all` (`0`)**, les comptes sont les branches de premier
-niveau. Pour un seul compte (`1`…`9`), l'arbre commence directement par ses
+niveau. Pour un seul compte (`:ns work`), l'arbre commence directement par ses
 dossiers. Les mails sont des lignes enfants de leur dossier, **dans cette
 même table**. Plusieurs dossiers peuvent rester dépliés simultanément.
 
@@ -39,8 +43,8 @@ cargo run --locked -- --keybindings
 Les captures exactes sont dans [`tests/snapshots/`](tests/snapshots/), aux
 tailles 40×12, 80×24, 120×40 et 180×50. Toutes affichent le même arbre pleine
 largeur : aucun volet latéral ni basculement entre listes dossiers/messages.
-Fond noir, bandeau cyan, **raccourcis sur deux colonnes** en haut, favoris de
-comptes et indicateur des mails en cours d'envoi à côté, logo sur grand terminal.
+Fond noir, bandeau cyan, **raccourcis sur deux colonnes** en haut, sélecteur de
+vues et indicateur des mails en cours d'envoi à côté, logo sur grand terminal.
 Les anciens champs Context/Account/Directory/Version ont été retirés du bandeau.
 
 ## Parcourir l'arbre Messages
@@ -73,8 +77,8 @@ charge ses mails puis le cible sans fermer les autres dossiers.
 ### Comptes comme namespaces k9s
 
 - **`0`** : tous les comptes, matérialisés par les branches de l'arbre.
-- **`1`…`9`** : comptes dans l'ordre de configuration, sans ligne de compte
-  supplémentaire dans l'arbre.
+- Les touches **`1` et `2`** sélectionnent désormais le calendrier et les contacts ;
+  les chiffres `3`…`9` ne sélectionnent plus de compte.
 - **`:ns`** ou `:accounts` : sélecteur comprenant la ligne `all`.
 - **`:ns work`**, **`:ns all`** : activation directe.
 
@@ -120,6 +124,16 @@ Les thèmes `k9s-dark`, `high-contrast`, `no-color` se changent avec `:theme`.
 Pour Ctrl+C, une première pression affiche une indication en bas ; une
 deuxième **dans les trois secondes** quitte. Après expiration, une nouvelle
 pression ouvre une nouvelle fenêtre de confirmation.
+
+## Calendriers et contacts
+
+Les vues **`1` Calendrier** et **`2` Contacts** utilisent des collections locales
+`.ics` et `.vcf`, compatibles avec les répertoires khal/khard et vdirsyncer.
+Elles sont désactivées par défaut. Plusieurs calendriers et carnets peuvent
+être configurés ; `c` crée, `e` modifie, Ctrl+D supprime, `/` filtre, et
+Ctrl+S enregistre dans le formulaire. Les fichiers sont relus automatiquement.
+
+Configuration TOML et détails des formats : **[docs/pim.md](docs/pim.md)**.
 
 ## Composer un email
 
@@ -288,8 +302,10 @@ demandé à IMAP : Neverest synchronise les données, MailTUI gère leur index l
 
 ## Assistant LLM facultatif
 
-**Ctrl+A** ou **`:ai`** ouvre une conversation plein écran, avec le mail ouvert
-ou pointé comme contexte. Depuis une branche/vue globale, le périmètre est celui
+**Ctrl+A** ou **`:ai`** ouvre une fenêtre de conversation centrée, à **80 % de
+la largeur et de la hauteur** du terminal, devant le mail ou la liste qui restent
+visibles en arrière-plan. Le mail ouvert ou pointé sert de contexte.
+Depuis une branche/vue globale, le périmètre est celui
 du compte actif, ou tous les comptes. **`:ai global`** commence une conversation
 sans mail attaché ; **`:ai new`** recommence depuis le contexte courant.
 Le mail et le compte sont attachés à la conversation : changer de vue ne les
@@ -302,17 +318,34 @@ aux sources ; dans le champ de conversation :
 
 - `/open N` ouvre le mail source ; `/sources` affiche leurs titres.
 - `/apply N` ouvre une proposition de réponse dans le compositeur, ou applique
-  un déplacement proposé. Une réponse conserve les en-têtes du fil ; l'envoi
+  un déplacement ou une opération calendrier/contact proposée. Une réponse conserve les en-têtes du fil ; l'envoi
   reste l'action explicite Ctrl+S du compositeur.
 - `/stop` interrompt la requête ; PgUp/PgDn parcourt la conversation.
+- `/models` (ou `:ai models`) affiche le catalogue de modèles exposé par l'instance
+  Codex connectée, avec les identifiants exacts à utiliser dans `[llm].model`.
 - `/new`, `/global`, `/status`, `/login`, `/logout` correspondent aux sous-commandes
   `:ai`. Ctrl+A garde son rôle d'édition/sélection dans les champs et sélecteurs.
 
 La conversation est conservée **en mémoire pendant le lancement courant**.
-Les recherches restent limitées aux données locales et au périmètre affiché.
+Les recherches mail restent limitées aux données locales et au compte de la conversation.
 Le modèle doit prendre en charge les appels d'outils. Une recherche retourne au
 plus 200 candidats, par pages de 20 ; les corps et fils sont bornés avec une
 indication de troncature. L'index peut encore être en cours de mise à jour.
+
+Si les sections calendrier/contacts sont activées, l'assistant dispose aussi
+d'outils de liste, recherche et lecture des événements et contacts, ainsi que
+de propositions de création, modification et suppression. Il utilise les
+collections configurées dans le TOML, indépendamment du compte mail actif.
+Exemples : « retrouve le contact d'Ada », « crée un rendez-vous à partir de ce
+mail dans mon calendrier travail ». **`/apply N`** applique la proposition via
+le worker local ; le résultat apparaît ensuite dans la conversation.
+
+La recherche mail du LLM interroge **la base SQLite de MailTUI**, sans recherche
+IMAP ni reconstruction depuis le store en mode réel. Les modes `auto`, `literal`
+et `structured` permettent au modèle de distinguer texte et filtres. Les sujets
+avec parenthèses et les apostrophes sont pris en charge ; un corps MIME absent
+n'empêche plus de chercher dans l'index. Une erreur de base ou de syntaxe est
+retournée explicitement, avec une indication de correction.
 
 ### Endpoint compatible OpenAI et clé API
 
@@ -358,6 +391,15 @@ les outils dynamiques expérimentaux, puis lancer **`:ai login`**. Le navigateur
 ouvre l'authentification ChatGPT ; l'URL est aussi affichée dans la conversation
 (mode manuel/SSH). **`:ai status`** affiche la connexion et **`:ai logout`** la
 supprime du home Codex configuré.
+
+Si Codex renvoie « model is not supported when using Codex with a ChatGPT
+account », consulter **`:ai models`**, vérifier la version de l'exécutable
+configuré (`codex --version` pour la commande par défaut) et les accès du compte
+ou workspace. L'existence d'un modèle dans la documentation, ou sa présence dans
+un catalogue éventuellement mis en cache, ne garantit pas l'accès effectif pour
+ce client et ce compte. MailTUI transmet le modèle configuré au démarrage du fil
+et du tour ; il n'en choisit pas un autre automatiquement. Le détail de l'erreur
+est conservé dans la conversation, avec retour à la ligne et défilement.
 
 MailTUI utilise par défaut un home Codex dédié sous
 `$XDG_DATA_HOME/mailtui/codex` (repli `~/.local/share/mailtui/codex`). Codex gère

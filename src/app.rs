@@ -78,6 +78,8 @@ pub(crate) fn fuzzy_score(candidate: &str, query: &str) -> Option<usize> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum View {
     Messages,
+    Calendar,
+    Contacts,
     Accounts,
     Detail,
     Pending,
@@ -89,6 +91,8 @@ impl View {
     pub fn name(self) -> &'static str {
         match self {
             Self::Messages => "Messages",
+            Self::Calendar => "Calendar",
+            Self::Contacts => "Contacts",
             Self::Accounts => "Accounts",
             Self::Detail => "Message",
             Self::Pending => "Outbox / pending",
@@ -163,6 +167,20 @@ pub enum Overlay {
     Aliases,
     Quit,
     Url(String),
+    PimForm {
+        contact: bool,
+        collection: usize,
+        original: Option<usize>,
+        fields: Vec<Input>,
+        field: usize,
+        error: Option<String>,
+    },
+    PimDelete {
+        contact: bool,
+        index: usize,
+        confirm: bool,
+    },
+    PimDetails(String),
 }
 
 #[derive(Clone)]
@@ -187,6 +205,12 @@ struct Navigation {
 }
 
 pub enum Request {
+    Pim {
+        generation: u64,
+        calendars: Vec<crate::config::PimCollection>,
+        books: Vec<crate::config::PimCollection>,
+        change: Box<crate::pim::Change>,
+    },
     SaveAttachments {
         generation: u64,
         directory: std::path::PathBuf,
@@ -244,6 +268,11 @@ pub enum Request {
     },
 }
 pub enum Event {
+    Pim {
+        generation: u64,
+        result: Result<crate::pim::Snapshot, String>,
+        write: bool,
+    },
     SavedAttachments {
         generation: u64,
         result: Result<Vec<std::path::PathBuf>, String>,
@@ -307,6 +336,7 @@ pub enum Event {
 impl Event {
     fn generation(&self) -> u64 {
         match self {
+            Self::Pim { generation, .. } => *generation,
             Self::SavedAttachments { generation, .. } => *generation,
             Self::Pending { generation, .. } | Self::Submitted { generation, .. } => *generation,
             Self::Found { generation, .. } => *generation,
@@ -346,6 +376,7 @@ pub fn start_worker_with_index(
     let worker = tokio::task::spawn_blocking(move || {
         while let Some(command) = commands.blocking_recv() {
             let generation = match &command {
+                Request::Pim { generation, .. } => *generation,
                 Request::SaveAttachments { generation, .. } => *generation,
                 Request::Pending { generation } => *generation,
                 Request::Find { generation, .. } => *generation,
@@ -362,6 +393,7 @@ pub fn start_worker_with_index(
                 && !matches!(
                     &command,
                     Request::Mutate { .. }
+                        | Request::Pim { .. }
                         | Request::CreateFolder { .. }
                         | Request::Compose { .. }
                         | Request::Pending { .. }
@@ -371,6 +403,20 @@ pub fn start_worker_with_index(
                 continue;
             }
             let result: anyhow::Result<Event> = (|| match command {
+                Request::Pim {
+                    calendars,
+                    books,
+                    change,
+                    ..
+                } => {
+                    let write = !matches!(*change, crate::pim::Change::Load);
+                    Ok(Event::Pim {
+                        generation,
+                        result: crate::pim::execute(&calendars, &books, *change)
+                            .map_err(|e| format!("{e:#}")),
+                        write,
+                    })
+                }
                 Request::SaveAttachments {
                     directory,
                     attachments,
@@ -546,6 +592,15 @@ pub struct App {
     pub table_offset: usize,
     pub scope: Scope,
     pub accounts: Vec<Account>,
+    pub calendar_collections: Vec<crate::config::PimCollection>,
+    pub contact_books: Vec<crate::config::PimCollection>,
+    pub calendar_events: Vec<crate::pim::Event>,
+    pub contacts: Vec<crate::pim::Contact>,
+    pub pim_loading: bool,
+    pub pim_pending: bool,
+    pub pim_warnings: Vec<String>,
+    pim_generation: u64,
+    pim_ai_request: Option<(u64, u64)>,
     pub folders: Vec<Folder>,
     pub messages: Vec<Message>,
     pub pending: Vec<PendingMail>,
@@ -614,6 +669,15 @@ impl App {
             table_offset: 0,
             scope: Scope::default(),
             accounts: vec![],
+            calendar_collections: vec![],
+            contact_books: vec![],
+            calendar_events: vec![],
+            contacts: vec![],
+            pim_loading: false,
+            pim_pending: false,
+            pim_warnings: vec![],
+            pim_generation: 0,
+            pim_ai_request: None,
             folders: vec![],
             messages: vec![],
             pending: vec![],
@@ -665,6 +729,58 @@ impl App {
             flagged: false,
         }
     }
+    pub fn configure_pim(
+        &mut self,
+        calendar: crate::config::CalendarConfig,
+        contacts: crate::config::ContactsConfig,
+    ) {
+        self.calendar_collections = if calendar.enabled {
+            calendar.collections
+        } else {
+            vec![]
+        };
+        self.contact_books = if contacts.enabled {
+            contacts.books
+        } else {
+            vec![]
+        };
+        self.reload_pim();
+    }
+    pub fn reload_pim(&mut self) {
+        if self.pim_loading
+            || self.pim_pending
+            || self.overlay.is_some()
+            || (self.calendar_collections.is_empty() && self.contact_books.is_empty())
+        {
+            return;
+        }
+        self.pim_request(crate::pim::Change::Load);
+    }
+    fn pim_request(&mut self, change: crate::pim::Change) -> bool {
+        if self.pim_loading || self.pim_pending {
+            self.notify("PIM operation in progress; retry shortly");
+            return false;
+        }
+        let write = !matches!(change, crate::pim::Change::Load);
+        let generation = self.pim_generation + 1;
+        if self
+            .tx
+            .try_send(Request::Pim {
+                generation,
+                calendars: self.calendar_collections.clone(),
+                books: self.contact_books.clone(),
+                change: Box::new(change),
+            })
+            .is_err()
+        {
+            self.notify("Background queue busy; retry");
+            return false;
+        }
+        self.pim_generation = generation;
+        self.pim_loading = !write;
+        self.pim_pending = write;
+        true
+    }
     pub fn open_ai(&mut self, new: bool, global: bool) {
         if !self.llm.enabled {
             self.notify("Assistant disabled · configure [llm] in config.toml");
@@ -704,8 +820,12 @@ impl App {
     }
     fn ai_command(&mut self, command: &str) {
         use crate::llm::{Command as C, Provider};
-        if !["", "new", "global", "login", "logout", "status", "stop"].contains(&command) {
-            self.notify("Usage: :ai [new|global|login|logout|status|stop]");
+        if ![
+            "", "new", "global", "login", "logout", "status", "stop", "models",
+        ]
+        .contains(&command)
+        {
+            self.notify("Usage: :ai [new|global|login|logout|status|stop|models]");
             return;
         }
         self.open_ai(command == "new" || command == "global", command == "global");
@@ -714,13 +834,17 @@ impl App {
         }
         match command {
             "stop" => self.ai_stop(),
-            "login" | "logout" | "status" => {
+            "login" | "logout" | "status" | "models" => {
                 if self.llm.provider != Provider::Codex {
-                    self.ai.status = format!(
-                        "{} · API key from {}",
-                        self.llm.label(),
-                        self.llm.auth.api_key_env
-                    );
+                    self.ai.status = if command == "models" {
+                        "Model catalogue is available in Codex mode; API mode uses llm.model".into()
+                    } else {
+                        format!(
+                            "{} · API key from {}",
+                            self.llm.label(),
+                            self.llm.auth.api_key_env
+                        )
+                    };
                     return;
                 }
                 self.ai.run += 1;
@@ -729,6 +853,7 @@ impl App {
                 self.ai.commands.push_back(match command {
                     "login" => C::Login(self.ai.run),
                     "logout" => C::Logout(self.ai.run),
+                    "models" => C::Models(self.ai.run),
                     _ => C::Status(self.ai.run),
                 });
             }
@@ -747,6 +872,15 @@ impl App {
             return;
         }
         match event.update {
+            Update::Models(models) => {
+                let list = models
+                    .iter()
+                    .map(|m| format!("• {m}"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                self.ai.history.push(crate::llm::MessageText { role:"assistant".into(),content:format!("Codex model catalogue\n{list}\n\nConfigured model: {}\nUse an exact catalogue identifier in [llm].model, then restart MailTUI.\nThe catalogue is informational; the backend determines actual access.",self.llm.model) });
+                self.ai.scroll = 0;
+            }
             Update::Text(text) => {
                 if self.ai.history.last().is_none_or(|m| m.role != "assistant") {
                     self.ai.history.push(crate::llm::MessageText {
@@ -801,13 +935,27 @@ impl App {
                 self.ai.busy = false;
                 if self.ai.status.starts_with("Generating")
                     || self.ai.status.starts_with("Mail tool:")
+                    || self.ai.status.starts_with("Local tool:")
                 {
                     self.ai.status = "Done".into();
                 }
             }
             Update::Error(error) => {
                 self.ai.busy = false;
-                self.ai.status = crate::mime::terminal_text(&format!("Error: {error}"));
+                self.ai.status = "Error · details in conversation".into();
+                let content = crate::mime::terminal_text(&format!("Error: {error}"));
+                if let Some(last) = self.ai.history.last_mut()
+                    && last.role == "assistant"
+                    && last.content.is_empty()
+                {
+                    last.content = content;
+                } else {
+                    self.ai.history.push(crate::llm::MessageText {
+                        role: "assistant".into(),
+                        content,
+                    });
+                }
+                self.ai.scroll = 0;
             }
         }
     }
@@ -861,7 +1009,7 @@ impl App {
                         content,
                     });
                 }
-                "new" | "global" | "login" | "logout" | "status" | "stop" => self.ai_command(name),
+                "new" | "global" | "login" | "logout" | "status" | "stop" | "models" => self.ai_command(name),
                 "open" => {
                     if let Some(source) = arg
                         .parse::<usize>()
@@ -885,6 +1033,20 @@ impl App {
                     if let Some(index) = arg.parse::<usize>().ok().and_then(|n| n.checked_sub(1)) {
                         let proposal = self.ai.proposals.get(index).and_then(|p| p.clone());
                         match proposal {
+                            Some(Proposal::Pim {change,..})=>{
+                                let allowed=match change.as_ref() {
+                                    crate::pim::Change::Event{collection,..}=>self.calendar_collections.iter().any(|c|c.id==collection.id&&c.path==collection.path),
+                                    crate::pim::Change::Contact{book,..}=>self.contact_books.iter().any(|b|b.id==book.id&&b.path==book.path),
+                                    crate::pim::Change::Delete{file,..}=>self.calendar_collections.iter().chain(&self.contact_books).any(|c|file.parent()==Some(c.path.as_path())),
+                                    crate::pim::Change::Load=>false,
+                                };
+                                if !allowed {self.ai.status="Calendar/address book no longer enabled or configured".into();}
+                                else if self.pim_request(*change) {
+                                    self.pim_ai_request=Some((self.pim_generation,self.ai.run));
+                                    self.ai.proposals[index]=None;
+                                    self.ai.status="Local PIM operation requested · awaiting worker receipt".into();
+                                } else {self.ai.status="PIM queue busy · retry /apply N".into();}
+                            }
                             Some(Proposal::Reply { draft }) => {
                                 if let Some(account) =
                                     self.accounts.iter().position(|a| a.id == draft.account)
@@ -937,7 +1099,7 @@ impl App {
                     }
                 }
                 _ => self.ai.status =
-                    "Commands: /new /global /stop /login /logout /status /sources /open N /apply N"
+                    "Commands: /new /global /stop /login /logout /status /models /sources /open N /apply N"
                         .into(),
             }
             self.ai.input = Input::default();
@@ -1199,9 +1361,47 @@ impl App {
         );
         out
     }
+    pub fn pim_rows(&self) -> Vec<usize> {
+        let needle = self.filter.to_lowercase();
+        if self.view == View::Calendar {
+            self.calendar_events
+                .iter()
+                .enumerate()
+                .filter(|(_, e)| {
+                    format!(
+                        "{} {} {} {} {} {}",
+                        e.collection,
+                        e.collection_label,
+                        e.summary,
+                        e.start,
+                        e.location,
+                        e.description
+                    )
+                    .to_lowercase()
+                    .contains(&needle)
+                })
+                .map(|(i, _)| i)
+                .collect()
+        } else {
+            self.contacts
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| {
+                    format!(
+                        "{} {} {} {} {} {}",
+                        c.book, c.book_label, c.name, c.email, c.phone, c.organization
+                    )
+                    .to_lowercase()
+                    .contains(&needle)
+                })
+                .map(|(i, _)| i)
+                .collect()
+        }
+    }
     fn count(&self) -> usize {
         match self.view {
             View::Messages => self.tree_rows().len(),
+            View::Calendar | View::Contacts => self.pim_rows().len(),
             View::Accounts => self.account_rows().len(),
             _ => 0,
         }
@@ -1523,7 +1723,10 @@ impl App {
         }
     }
     fn move_row(&mut self, amount: isize) {
-        if matches!(self.view, View::Messages | View::Accounts) {
+        if matches!(
+            self.view,
+            View::Messages | View::Accounts | View::Calendar | View::Contacts
+        ) {
             self.row = self
                 .row
                 .saturating_add_signed(amount)
@@ -1614,6 +1817,9 @@ impl App {
         }
     }
     pub fn switch_account(&mut self, account: Option<String>) {
+        if matches!(self.view, View::Calendar | View::Contacts) {
+            self.filter.clear();
+        }
         self.scope.account = account;
         if self.view != View::Messages {
             self.view = View::Messages;
@@ -1708,6 +1914,169 @@ impl App {
         }
     }
 
+    fn pim_form(&mut self, original: Option<usize>) {
+        if self.pim_loading || self.pim_pending {
+            self.notify("Wait for the PIM operation to finish");
+            return;
+        }
+        let contact = self.view == View::Contacts;
+        if original.is_some_and(|i| {
+            i >= if contact {
+                self.contacts.len()
+            } else {
+                self.calendar_events.len()
+            }
+        }) {
+            return;
+        }
+        let (collection, values) = if contact {
+            if self.contact_books.is_empty() {
+                self.notify("No address books configured");
+                return;
+            }
+            let item = original.and_then(|i| self.contacts.get(i));
+            let collection = item
+                .and_then(|c| self.contact_books.iter().position(|b| b.id == c.book))
+                .unwrap_or(0);
+            let values = item
+                .map(|c| {
+                    vec![
+                        c.name.clone(),
+                        c.email.clone(),
+                        c.phone.clone(),
+                        c.organization.clone(),
+                    ]
+                })
+                .unwrap_or_else(|| vec![String::new(); 4]);
+            (collection, values)
+        } else {
+            if self.calendar_collections.is_empty() {
+                self.notify("No calendars configured");
+                return;
+            }
+            let item = original.and_then(|i| self.calendar_events.get(i));
+            let collection = item
+                .and_then(|e| {
+                    self.calendar_collections
+                        .iter()
+                        .position(|c| c.id == e.collection)
+                })
+                .unwrap_or(0);
+            let values = item
+                .map(|e| {
+                    vec![
+                        e.summary.clone(),
+                        e.start.clone(),
+                        e.end.clone(),
+                        e.location.clone(),
+                        e.description.clone(),
+                        e.recurrence.clone(),
+                    ]
+                })
+                .unwrap_or_else(|| vec![String::new(); 6]);
+            (collection, values)
+        };
+        self.overlay = Some(Overlay::PimForm {
+            contact,
+            collection,
+            original,
+            fields: values
+                .into_iter()
+                .map(|v| {
+                    let mut i = Input::default();
+                    i.set(v);
+                    i
+                })
+                .collect(),
+            field: if original.is_some() { 1 } else { 0 },
+            error: None,
+        });
+    }
+    fn pim_save(
+        &mut self,
+        contact: bool,
+        collection: usize,
+        original: Option<usize>,
+        fields: &[Input],
+    ) -> anyhow::Result<()> {
+        if contact {
+            let book = self
+                .contact_books
+                .get(collection)
+                .ok_or_else(|| anyhow::anyhow!("Address book unavailable"))?;
+            let prior = original.and_then(|i| self.contacts.get(i));
+            let item = crate::pim::Contact {
+                book: book.id.clone(),
+                book_label: book.label.clone(),
+                uid: prior
+                    .filter(|c| !c.uid.is_empty())
+                    .map(|c| c.uid.clone())
+                    .unwrap_or_else(|| format!("mailtui-{:016x}", rand::random::<u64>())),
+                name: fields[0].text.clone(),
+                email: fields[1].text.clone(),
+                phone: fields[2].text.clone(),
+                organization: fields[3].text.clone(),
+                file: prior.map(|c| c.file.clone()).unwrap_or_default(),
+                source: prior.map(|c| c.source.clone()).unwrap_or_default(),
+            };
+            if !self.pim_request(crate::pim::Change::Contact {
+                book: book.clone(),
+                entry: item,
+            }) {
+                anyhow::bail!("Unable to queue operation; retry");
+            }
+        } else {
+            let calendar = self
+                .calendar_collections
+                .get(collection)
+                .ok_or_else(|| anyhow::anyhow!("Calendar unavailable"))?;
+            let prior = original.and_then(|i| self.calendar_events.get(i));
+            let item = crate::pim::Event {
+                collection: calendar.id.clone(),
+                collection_label: calendar.label.clone(),
+                uid: prior
+                    .map(|e| e.uid.clone())
+                    .unwrap_or_else(|| format!("mailtui-{:016x}", rand::random::<u64>())),
+                summary: fields[0].text.clone(),
+                start: fields[1].text.clone(),
+                end: fields[2].text.clone(),
+                location: fields[3].text.clone(),
+                description: fields[4].text.clone(),
+                file: prior.map(|e| e.file.clone()).unwrap_or_default(),
+                source: prior.map(|e| e.source.clone()).unwrap_or_default(),
+                recurrence: fields[5].text.clone(),
+                timezone: prior.map(|e| e.timezone.clone()).unwrap_or_default(),
+            };
+            if !self.pim_request(crate::pim::Change::Event {
+                collection: calendar.clone(),
+                entry: item,
+            }) {
+                anyhow::bail!("Unable to queue operation; retry");
+            }
+        }
+        Ok(())
+    }
+    fn pim_delete(&mut self, contact: bool, index: usize) {
+        let change = if contact {
+            self.contacts
+                .get(index)
+                .map(|c| crate::pim::Change::Delete {
+                    file: c.file.clone(),
+                    source: c.source.clone(),
+                })
+        } else {
+            self.calendar_events
+                .get(index)
+                .map(|e| crate::pim::Change::Delete {
+                    file: e.file.clone(),
+                    source: e.source.clone(),
+                })
+        };
+        if let Some(change) = change {
+            self.pim_request(change);
+        }
+    }
+
     pub fn key(&mut self, key: KeyEvent) {
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
             self.confirm_quit(std::time::Instant::now());
@@ -1718,6 +2087,86 @@ impl App {
             return;
         }
         if let Some(overlay) = self.overlay.clone() {
+            if let Overlay::PimForm {
+                contact,
+                mut collection,
+                original,
+                mut fields,
+                mut field,
+                mut error,
+            } = overlay
+            {
+                if self.pim_pending {
+                    return;
+                }
+                let length = fields.len() + 1;
+                match key.code {
+                    KeyCode::Esc => {
+                        self.overlay = None;
+                        return;
+                    }
+                    KeyCode::Tab => field = (field + 1) % length,
+                    KeyCode::BackTab => field = field.checked_sub(1).unwrap_or(length - 1),
+                    KeyCode::Left | KeyCode::Right if field == 0 && original.is_none() => {
+                        let count = if contact {
+                            self.contact_books.len()
+                        } else {
+                            self.calendar_collections.len()
+                        };
+                        collection = if key.code == KeyCode::Right {
+                            (collection + 1) % count
+                        } else {
+                            (collection + count - 1) % count
+                        };
+                    }
+                    KeyCode::Enter if field + 1 < length => field += 1,
+                    KeyCode::Enter | KeyCode::Char('s')
+                        if key.code == KeyCode::Enter
+                            || key.modifiers.contains(KeyModifiers::CONTROL) =>
+                    {
+                        if let Err(reason) = self.pim_save(contact, collection, original, &fields) {
+                            error = Some(format!("{reason:#}"));
+                        }
+                    }
+                    _ if field > 0 => {
+                        fields[field - 1].key(key);
+                        error = None;
+                    }
+                    _ => {}
+                }
+                self.overlay = Some(Overlay::PimForm {
+                    contact,
+                    collection,
+                    original,
+                    fields,
+                    field,
+                    error,
+                });
+                return;
+            }
+            if let Overlay::PimDelete {
+                contact,
+                index,
+                confirm,
+            } = overlay
+            {
+                match key.code {
+                    KeyCode::Esc => self.overlay = None,
+                    KeyCode::Char('y' | 'Y') => {
+                        self.overlay = Some(Overlay::PimDelete {
+                            contact,
+                            index,
+                            confirm: true,
+                        })
+                    }
+                    KeyCode::Char('n' | 'N') | KeyCode::Enter => self.overlay = None,
+                    _ => {}
+                }
+                if matches!(key.code, KeyCode::Enter) && confirm {
+                    self.pim_delete(contact, index);
+                }
+                return;
+            }
             if matches!(
                 overlay,
                 Overlay::Find { .. }
@@ -1752,21 +2201,26 @@ impl App {
                         mutation: Mutation::Trash,
                     });
                 }
-                (Overlay::Confirm { .. } | Overlay::Help, KeyCode::Down) => {
-                    self.help_scroll = self.help_scroll.saturating_add(1).min(65_535)
-                }
-                (Overlay::Confirm { .. } | Overlay::Help, KeyCode::Up) => {
+                (
+                    Overlay::Confirm { .. } | Overlay::Help | Overlay::PimDetails(_),
+                    KeyCode::Down,
+                ) => self.help_scroll = self.help_scroll.saturating_add(1).min(65_535),
+                (Overlay::Confirm { .. } | Overlay::Help | Overlay::PimDetails(_), KeyCode::Up) => {
                     self.help_scroll = self.help_scroll.saturating_sub(1)
                 }
-                (Overlay::Confirm { .. } | Overlay::Help, KeyCode::PageDown) => {
+                (
+                    Overlay::Confirm { .. } | Overlay::Help | Overlay::PimDetails(_),
+                    KeyCode::PageDown,
+                ) => {
                     self.help_scroll = self
                         .help_scroll
                         .saturating_add(self.page_height.max(1))
                         .min(65_535)
                 }
-                (Overlay::Confirm { .. } | Overlay::Help, KeyCode::PageUp) => {
-                    self.help_scroll = self.help_scroll.saturating_sub(self.page_height.max(1))
-                }
+                (
+                    Overlay::Confirm { .. } | Overlay::Help | Overlay::PimDetails(_),
+                    KeyCode::PageUp,
+                ) => self.help_scroll = self.help_scroll.saturating_sub(self.page_height.max(1)),
                 (Overlay::Help, KeyCode::Char('/')) => {
                     self.overlay = None;
                     self.navigate(View::Help);
@@ -1790,6 +2244,51 @@ impl App {
         let previous_g = self.g_pending;
         self.g_pending = false;
         match action {
+            Search | Filter if matches!(self.view, View::Calendar | View::Contacts) => {
+                let mut input = Input::default();
+                input.set(self.filter.clone());
+                self.input = Some((InputMode::Filter, input));
+            }
+            Open | Read if matches!(self.view, View::Calendar | View::Contacts) => {
+                if let Some(index) = self.pim_rows().get(self.row).copied() {
+                    let body = if self.view == View::Calendar {
+                        let e = &self.calendar_events[index];
+                        format!(
+                            "{}\nCalendar: {}\nStart: {}\nEnd (exclusive): {}\nTimezone: {}\nLocation: {}\nRepeat rule: {}\n\n{}\n\n{}\n\nEsc close · e edits from the list",
+                            e.summary,
+                            e.collection_label,
+                            crate::pim::display_date(&e.start),
+                            crate::pim::display_date(&e.end),
+                            if e.timezone.is_empty() {
+                                "floating / UTC"
+                            } else {
+                                &e.timezone
+                            },
+                            e.location,
+                            if e.recurrence.is_empty() {
+                                "none"
+                            } else {
+                                &e.recurrence
+                            },
+                            e.description,
+                            e.file.display()
+                        )
+                    } else {
+                        let c = &self.contacts[index];
+                        format!(
+                            "{}\nAddress book: {}\nEmail: {}\nPhone: {}\nOrganization: {}\n\n{}\n\nEsc close · e edits from the list",
+                            c.name,
+                            c.book_label,
+                            c.email,
+                            c.phone,
+                            c.organization,
+                            c.file.display()
+                        )
+                    };
+                    self.help_scroll = 0;
+                    self.overlay = Some(Overlay::PimDetails(crate::mime::terminal_text(&body)));
+                }
+            }
             Assistant => self.open_ai(false, false),
             SaveAttachments if self.view == View::Detail => {
                 if let Some(parsed) = &self.parsed {
@@ -1819,15 +2318,24 @@ impl App {
                 self.index_dirty = true;
                 self.find_request();
             }
-            AccountSlot(slot) => {
-                if slot == 0 {
-                    self.switch_account(None);
-                } else if let Some(id) = self.accounts.get(slot - 1).map(|a| a.id.clone()) {
-                    self.switch_account(Some(id));
-                } else {
-                    self.notify(format!("No account assigned to <{slot}>; use :ns"));
+            ViewSlot(slot) => match slot {
+                0 => self.switch_account(None),
+                1 if !self.calendar_collections.is_empty() => {
+                    if self.view != View::Calendar {
+                        self.navigate(View::Calendar);
+                    }
+                    self.reload_pim();
                 }
-            }
+                2 if !self.contact_books.is_empty() => {
+                    if self.view != View::Contacts {
+                        self.navigate(View::Contacts);
+                    }
+                    self.reload_pim();
+                }
+                1 => self.notify("Calendar view is not enabled/configured"),
+                2 => self.notify("Contacts view is not enabled/configured"),
+                _ => {}
+            },
             Command => {
                 self.history_pos = self.history.len();
                 self.input = Some((InputMode::Command, Input::default()));
@@ -1929,6 +2437,20 @@ impl App {
                 self.selected.clear();
                 self.last_mark = None;
             }
+            Delete if matches!(self.view, View::Calendar | View::Contacts) => {
+                if self.pim_loading || self.pim_pending {
+                    self.notify("Wait for the PIM operation to finish");
+                    return;
+                }
+                let contact = self.view == View::Contacts;
+                if let Some(index) = self.pim_rows().get(self.row).copied() {
+                    self.overlay = Some(Overlay::PimDelete {
+                        contact,
+                        index,
+                        confirm: false,
+                    });
+                }
+            }
             Delete if matches!(self.view, View::Messages | View::Detail) => {
                 let ids = self.targets();
                 if ids.is_empty() {
@@ -1971,6 +2493,9 @@ impl App {
                 } else {
                     self.input = Some((InputMode::Copy, Input::default()));
                 }
+            }
+            CreateFolder if matches!(self.view, View::Calendar | View::Contacts) => {
+                self.pim_form(None)
             }
             CreateFolder => {
                 let account = self.context_account();
@@ -2038,7 +2563,16 @@ impl App {
             ToggleWide => self.wide = !self.wide,
             ToggleBreadcrumbs => self.show_breadcrumbs = !self.show_breadcrumbs,
             Aliases => self.overlay = Some(Overlay::Aliases),
+            EditItem if matches!(self.view, View::Calendar | View::Contacts) => {
+                if let Some(index) = self.pim_rows().get(self.row).copied() {
+                    self.pim_form(Some(index));
+                }
+            }
             Compose => {
+                if matches!(self.view, View::Calendar | View::Contacts) {
+                    self.pim_form(None);
+                    return;
+                }
                 self.compose_reply = None;
                 if self.accounts.is_empty() {
                     self.notify("No sending account configured");
@@ -2504,6 +3038,29 @@ impl App {
     }
     pub fn paste(&mut self, text: &str) {
         match &mut self.overlay {
+            Some(Overlay::PimForm {
+                fields,
+                field,
+                contact,
+                error,
+                ..
+            }) if !self.pim_pending && *field > 0 => {
+                if !*contact && *field == 5 {
+                    let clean: String = crate::mime::terminal_text(text)
+                        .chars()
+                        .filter(|c| !c.is_control() || *c == '\n')
+                        .collect();
+                    let input = &mut fields[*field - 1];
+                    if input.text.len() + clean.len() <= 65536 {
+                        input.text.insert_str(input.cursor, &clean);
+                        input.cursor += clean.len();
+                    }
+                } else {
+                    fields[*field - 1].insert(text);
+                }
+                *error = None;
+                return;
+            }
             Some(Overlay::Assistant) => {
                 self.ai.input.insert(text);
                 return;
@@ -2569,11 +3126,13 @@ impl App {
     }
     pub fn completions(&self, prefix: &str) -> Vec<String> {
         if let Some(prefix) = prefix.strip_prefix("ai ") {
-            return ["new", "global", "login", "logout", "status", "stop"]
-                .into_iter()
-                .filter(|s| s.starts_with(prefix))
-                .map(|s| format!("ai {s}"))
-                .collect();
+            return [
+                "new", "global", "login", "logout", "status", "stop", "models",
+            ]
+            .into_iter()
+            .filter(|s| s.starts_with(prefix))
+            .map(|s| format!("ai {s}"))
+            .collect();
         }
         for alias in ["account", "accounts", "ns"] {
             if let Some(name) = prefix.strip_prefix(&format!("{alias} ")) {
@@ -2621,6 +3180,10 @@ impl App {
             Command::Quit => self.request_quit(),
             Command::More => self.load_more(),
             Command::Reload => {
+                if matches!(self.view, View::Calendar | View::Contacts) {
+                    self.reload_pim();
+                    return;
+                }
                 self.revision += 1;
                 if self.view == View::Detail {
                     let generation = self.generation();
@@ -2741,6 +3304,8 @@ impl App {
                     self.notify(format!("Flagged filter: {}", self.flagged));
                 }
                 "outbox" => self.navigate(View::Pending),
+                "calendar" => self.action(Action::ViewSlot(1)),
+                "contacts" => self.action(Action::ViewSlot(2)),
                 "compose" => self.action(Action::Compose),
                 "mkdir" => self.action(Action::CreateFolder),
                 "status" => self.navigate(View::Status),
@@ -2752,6 +3317,78 @@ impl App {
     }
 
     pub fn event(&mut self, event: Event) {
+        if let Event::Pim {
+            generation,
+            result,
+            write,
+        } = event
+        {
+            if generation != self.pim_generation {
+                return;
+            }
+            self.pim_loading = false;
+            self.pim_pending = false;
+            if write
+                && self
+                    .pim_ai_request
+                    .take()
+                    .is_some_and(|(request, run)| request == generation && run == self.ai.run)
+            {
+                let message=match &result {Ok(_)=>"Calendar/contact operation applied locally. Synchronization remains handled by vdirsyncer.".into(),Err(error)=>format!("Calendar/contact operation failed: {error}")};
+                self.ai.status = if result.is_ok() {
+                    "PIM operation applied locally".into()
+                } else {
+                    "PIM operation failed · see conversation".into()
+                };
+                self.ai.history.push(crate::llm::MessageText {
+                    role: "assistant".into(),
+                    content: crate::mime::terminal_text(&message),
+                });
+            }
+            match result {
+                Ok(snapshot) => {
+                    let path = self.pim_rows().get(self.row).and_then(|i| {
+                        if self.view == View::Calendar {
+                            self.calendar_events.get(*i).map(|e| e.file.clone())
+                        } else {
+                            self.contacts.get(*i).map(|c| c.file.clone())
+                        }
+                    });
+                    self.calendar_events = snapshot.events;
+                    self.contacts = snapshot.contacts;
+                    if matches!(self.view, View::Calendar | View::Contacts) {
+                        self.row = path
+                            .and_then(|path| {
+                                self.pim_rows().iter().position(|i| {
+                                    if self.view == View::Calendar {
+                                        self.calendar_events[*i].file == path
+                                    } else {
+                                        self.contacts[*i].file == path
+                                    }
+                                })
+                            })
+                            .unwrap_or(self.row.min(self.count().saturating_sub(1)));
+                    }
+                    if write {
+                        if matches!(self.overlay, Some(Overlay::PimForm { .. })) {
+                            self.overlay = None;
+                        }
+                        self.notify("PIM entry saved/deleted locally · sync handled by vdirsyncer");
+                    }
+                    if snapshot.warnings != self.pim_warnings && !snapshot.warnings.is_empty() {
+                        self.notify(format!("PIM: {}", snapshot.warnings.join(" · ")));
+                    }
+                    self.pim_warnings = snapshot.warnings;
+                }
+                Err(reason) => {
+                    if let Some(Overlay::PimForm { error, .. }) = &mut self.overlay {
+                        *error = Some(reason.clone());
+                    }
+                    self.notify(format!("PIM: {reason}"));
+                }
+            }
+            return;
+        }
         if let Event::SavedAttachments { generation, result } = event {
             let current = generation == self.generation;
             if current {
@@ -2837,7 +3474,10 @@ impl App {
         let focus = self.focused_key();
         self.busy = false;
         match event {
-            Event::Pending { .. } | Event::Submitted { .. } | Event::SavedAttachments { .. } => {
+            Event::Pending { .. }
+            | Event::Submitted { .. }
+            | Event::SavedAttachments { .. }
+            | Event::Pim { .. } => {
                 unreachable!("receipts handled above")
             }
             Event::Found {

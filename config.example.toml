@@ -48,7 +48,8 @@ api_key_env = "MAILTUI_LLM_API_KEY"
 [[accounts]]
 id = "personal"
 # neverest_account = "personal" # defaults to this ID; always passed explicitly as -a
-# 0 = all accounts; 1..9 = configured accounts in this file's order.
+# 0 = Mail; 1 = Calendar (when enabled); 2 = Contacts (when enabled).
+# Select an individual mail account with :ns or :ns personal.
 # The account ID "all" is reserved for the all-accounts scope.
 label = "Personal"
 email = "me@example.com"
@@ -61,3 +62,28 @@ id = "work"
 label = "Work"
 email = "me@company.example"
 store = "/home/your-user/.local/state/neverest/work"
+
+# Optional local vdir calendars. Set enabled=true after adapting these paths.
+# Use the same collection directories as khal/vdirsyncer (not khal's cache DB).
+[calendar]
+enabled = false
+[[calendar.collections]]
+id = "personal"
+label = "Personal"
+path = "/home/your-user/.local/share/calendars/personal"
+[[calendar.collections]]
+id = "work"
+label = "Work"
+path = "/home/your-user/.local/share/calendars/work"
+
+# Optional vCard address books, e.g. synchronized by vdirsyncer/CardDAV.
+[contacts]
+enabled = false
+[[contacts.books]]
+id = "personal"
+label = "Personal contacts"
+path = "/home/your-user/.local/share/contacts/personal"
+[[contacts.books]]
+id = "team"
+label = "Team"
+path = "/home/your-user/.local/share/contacts/team"

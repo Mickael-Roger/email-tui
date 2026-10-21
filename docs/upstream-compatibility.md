@@ -29,8 +29,9 @@
   is resolved **in favor of k9s**: Ctrl+D opens the deletion dialog (Cancel
    focused, then confirmation), and Shift+N/A/P/S sort name/age/namespace/status. The keyboard reference
    is generated from the reduced registry; arrows replace letter navigation.
-  Accounts now use the namespace model: 0 = all, 1..9 = accounts in config
-  order, `:ns` selects an account. This supersedes the initial design's ban
+   Accounts use the namespace model through `:ns`; numeric shortcuts now select
+   resource views: 0 = Mail, 1 = optional Calendar, 2 = optional Contacts.
+   This supersedes both numeric account selection and the initial design's ban
   on the namespace alias and its proposed Ctrl+D half-page binding.
   Verified against the README and `internal/view/browser.go` namespace
   action registration. The screenshot `assets/screen_po.png` was inspected

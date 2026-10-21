@@ -2,10 +2,10 @@
 source: tests/workflows.rs
 expression: "capture(&mut app, 80, 24)"
 ---
-<?>        Help              <m>        Move mail         <0> all
-<enter/u>  Use account       <c>        Compose mail      <1> work
-<0>        All accounts      <n>        New directory     <2> personal
-</>        Filter            <space>    Mark mail         Pending: 0
+<?>        Help              <m>        Move mail         <0> Mail
+<enter/u>  Use account       <c>        Compose mail      Pending: 0
+<0>        All accounts      <n>        New directory
+</>        Filter            <space>    Mark mail
 <:>        Commands          <ctrl-c>   Twice to quit
 <esc>      Back              <esc>      Back
 

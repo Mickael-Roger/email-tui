@@ -32,19 +32,17 @@ impl Query {
         }
     }
     pub fn parse(s: &str) -> Result<Self> {
-        if s.contains(['(', ')']) {
-            bail!("Boolean groups are not supported in v0.1");
-        }
         let mut query = Self {
             terms: vec![],
             filters: vec![],
             prefix: false,
         };
-        for term in shell_words::split(s).context("Malformed search quoting")? {
-            if ["OR", "AND", "NOT"].contains(&term.as_str()) || term.starts_with('-') {
+        for (term, literal) in search_words(s)? {
+            if !literal && (["OR", "AND", "NOT"].contains(&term.as_str()) || term.starts_with('-'))
+            {
                 bail!("Use implicit AND terms; OR, NOT and negation are not supported in v0.1");
             }
-            if let Some((field, value)) = term.split_once(':') {
+            if let Some((field, value)) = term.split_once(':').filter(|_| !literal) {
                 if ![
                     "from", "to", "subject", "account", "folder", "is", "has", "after", "before",
                 ]
@@ -72,6 +70,60 @@ impl Query {
         }
         Ok(query)
     }
+}
+
+/// Search is not shell syntax: apostrophes inside words are ordinary text.
+/// Keep quoted values intact, including parentheses, and distinguish a quoted
+/// literal ("OR", "subject:example") from an actual operator.
+fn search_words(source: &str) -> Result<Vec<(String, bool)>> {
+    let mut words = vec![];
+    let mut value = String::new();
+    let mut quote = None;
+    let mut literal = false;
+    let mut started = false;
+    let mut chars = source.chars();
+    while let Some(c) = chars.next() {
+        if let Some(q) = quote {
+            if c == q {
+                quote = None;
+            } else if c == '\\' && q == '"' {
+                value.push(chars.next().context("Malformed search escape")?);
+            } else {
+                value.push(c);
+            }
+        } else if c.is_whitespace() {
+            if started {
+                words.push((std::mem::take(&mut value), literal));
+                literal = false;
+                started = false;
+            }
+        } else if c == '"' || (c == '\'' && (value.is_empty() || value.ends_with(':'))) {
+            if !started {
+                literal = true;
+            }
+            quote = Some(c);
+            started = true;
+        } else {
+            if c == '(' || c == ')' {
+                bail!(
+                    "Boolean groups are not supported; quote parentheses inside subjects or phrases"
+                );
+            }
+            if c == '\\' {
+                value.push(chars.next().context("Malformed search escape")?);
+            } else {
+                value.push(c);
+            }
+            started = true;
+        }
+    }
+    if quote.is_some() {
+        bail!("Malformed search quoting: close the quoted value");
+    }
+    if started {
+        words.push((value, literal));
+    }
+    Ok(words)
 }
 fn valid_date(s: &str) -> bool {
     let parts: Vec<_> = s.split('-').collect();
