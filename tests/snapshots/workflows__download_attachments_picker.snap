@@ -3,12 +3,12 @@ source: tests/workflows.rs
 expression: "capture(&mut app, 100, 28)"
 ---
 <?>        Help                     <m>        Move mail                <0> Mail
-<ctrl-d>   Delete                   <c>        Compose mail             Pending: 0
-<h/H>┌──────────────────────── 📎 Attachments · select files to save ─────────────────────────┐
-<ctrl│Filter:  dnbi                                                                           │
-<pgdn│2 files · 0 selected                                                                    │
-<esc>│  📎 données.bin                                                            1 KiB       │
-     │                                                                                        │
+<t>        Read / unread            <c>        Compose mail             Pending: 0
+<ctrl┌──────────────────────── 📎 Attachments · select files to save ─────────────────────────┐
+<h/H>│Filter:  dnbi                                                                           │
+<ctrl│2 files · 0 selected                                                                    │
+<pgdn│  📎 données.bin                                                            1 KiB       │
+<esc>│                                                                                        │
 ┌────│                                                                                        │────┐
 │Mult│                                                                                        │    │
 │From│                                                                                        │    │

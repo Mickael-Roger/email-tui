@@ -555,7 +555,7 @@ fn header(frame: &mut Frame, app: &App, area: Rect, p: &Palette, compact: bool) 
             Paragraph::new(if matches!(app.view, View::Calendar | View::Contacts) {
                 "<c> Create · <e> Edit\n<enter> Details\n<Ctrl+D> Delete"
             } else {
-                "<m> Move mail\n<c> Compose mail\n<:ns> Accounts"
+                "<t> Read/unread\n<m> Move mail\n<c> Compose mail"
             })
             .style(key_style),
             columns[1],
@@ -594,6 +594,7 @@ fn header(frame: &mut Frame, app: &App, area: Rect, p: &Palette, compact: bool) 
         ],
         View::Detail => vec![
             ("<?>", "Help"),
+            ("<t>", "Read / unread"),
             ("<ctrl-d>", "Delete"),
             ("<h/H>", "HTML / remote"),
             ("<ctrl-s>", "Save attachments"),
@@ -602,6 +603,7 @@ fn header(frame: &mut Frame, app: &App, area: Rect, p: &Palette, compact: bool) 
         ],
         _ => vec![
             ("<?>", "Help"),
+            ("<t>", "Read / unread"),
             ("<ctrl-d>", "Delete mail"),
             ("<enter>", "Unfold / read"),
             ("<h/H>", "HTML / remote"),

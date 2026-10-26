@@ -27,6 +27,7 @@ pub enum Action {
     Sort,
     Seen,
     Unseen,
+    ToggleSeen,
     Flag,
     Delete,
     Move,
@@ -199,6 +200,13 @@ pub fn bindings() -> Vec<Binding> {
             "Cycle message sort: date/from/subject/size",
         ),
         (Char('i'), M::NONE, "i", Action::Seen, "Mark messages read"),
+        (
+            Char('t'),
+            M::NONE,
+            "t",
+            Action::ToggleSeen,
+            "Toggle read/unread · mixed selection becomes read",
+        ),
         (
             Char('u'),
             M::NONE,

@@ -95,6 +95,46 @@ async fn expand(app: &mut App, events: &mut Events, account: &str, folder: &str)
 }
 
 #[tokio::test]
+async fn toggle_read_status_handles_single_mixed_selection_and_open_message() {
+    let (mut app, mut rx, current, worker) = fixture().await;
+    let unread = app.messages.iter().find(|m| !m.seen).unwrap().id.clone();
+    let read = app.messages.iter().find(|m| m.seen).unwrap().id.clone();
+    focus_mail(&mut app, &unread);
+    key(&mut app, 't');
+    settle(&mut app, &mut rx).await;
+    assert!(app.messages.iter().find(|m| m.id == unread).unwrap().seen);
+    key(&mut app, 't');
+    settle(&mut app, &mut rx).await;
+    assert!(!app.messages.iter().find(|m| m.id == unread).unwrap().seen);
+
+    app.selected.extend([unread.clone(), read.clone()]);
+    focus_folder(&mut app, "work", "INBOX");
+    key(&mut app, 't');
+    settle(&mut app, &mut rx).await;
+    for id in [&unread, &read] {
+        assert!(app.messages.iter().find(|m| &m.id == id).unwrap().seen);
+    }
+    app.selected.extend([unread.clone(), read.clone()]);
+    key(&mut app, 't');
+    settle(&mut app, &mut rx).await;
+    for id in [&unread, &read] {
+        assert!(!app.messages.iter().find(|m| &m.id == id).unwrap().seen);
+    }
+
+    app.selected.insert(read.clone());
+    focus_mail(&mut app, &unread);
+    app.key(KeyCode::Enter.into());
+    settle(&mut app, &mut rx).await;
+    assert_eq!(app.view, View::Detail);
+    assert_eq!(app.targets(), vec![unread.clone()]);
+    key(&mut app, 't');
+    settle(&mut app, &mut rx).await;
+    assert!(app.messages.iter().find(|m| m.id == unread).unwrap().seen);
+    assert!(!app.messages.iter().find(|m| m.id == read).unwrap().seen);
+    finish(app, rx, current, worker).await;
+}
+
+#[tokio::test]
 async fn one_list_nests_messages_below_their_folder_and_accounts_only_in_all_scope() {
     let (mut app, mut rx, current, worker) = fixture().await;
     assert_eq!(app.view, View::Messages);

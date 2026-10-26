@@ -1332,7 +1332,7 @@ impl App {
             .collect()
     }
     pub fn targets(&self) -> Vec<MessageId> {
-        if self.selected.is_empty() {
+        if self.view == View::Detail || self.selected.is_empty() {
             self.focused()
                 .map(|m| vec![m.id.clone()])
                 .unwrap_or_default()
@@ -2466,6 +2466,15 @@ impl App {
                 }
             }
             Seen => self.mutate(Mutation::Seen(true)),
+            ToggleSeen if matches!(self.view, View::Messages | View::Detail) => {
+                let ids: HashSet<_> = self.targets().into_iter().collect();
+                let seen = if self.view == View::Detail {
+                    self.detail.as_ref().is_some_and(|m| !m.seen)
+                } else {
+                    self.messages.iter().any(|m| ids.contains(&m.id) && !m.seen)
+                };
+                self.mutate(Mutation::Seen(seen));
+            }
             Unseen if self.view == View::Accounts => self.select_account(),
             Unseen => self.mutate(Mutation::Seen(false)),
             Flag => {

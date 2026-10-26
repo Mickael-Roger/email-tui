@@ -3,11 +3,11 @@ source: tests/workflows.rs
 expression: "capture(&mut app, 100, 28)"
 ---
 <?>        Help                     <m>        Move mail                <0> Mail
-<ctrl-d>   Delete mail              <c>        Compose mail             Pending: 0
-<ente┌───────────────────────────── Search · MailTUI local index ─────────────────────────────┐
-<h/H>│Search:  kbrnts                                                                         │
-</>  │Local text + fuzzy metadata · all · 23 results                                          │
-     │Release planning — Kubernetes 1.35       alice@example.com      personal / INBOX        │
+<t>        Read / unread            <c>        Compose mail             Pending: 0
+<ctrl┌───────────────────────────── Search · MailTUI local index ─────────────────────────────┐
+<ente│Search:  kbrnts                                                                         │
+<h/H>│Local text + fuzzy metadata · all · 23 results                                          │
+</>  │Release planning — Kubernetes 1.35       alice@example.com      personal / INBOX        │
      │Release planning — Kubernetes 1.35       alice@example.com      personal / INBOX        │
 ┌────│Release planning — Kubernetes 1.35       alice@example.com      personal / INBOX        │────┐
 │NAME│Release planning — Kubernetes 1.35       alice@example.com      personal / INBOX        │OTAL│

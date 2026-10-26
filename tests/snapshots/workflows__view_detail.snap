@@ -3,12 +3,12 @@ source: tests/workflows.rs
 expression: "capture(&mut app, 80, 24)"
 ---
 <?>        Help              <m>        Move mail         <0> Mail
-<ctrl-d>   Delete            <c>        Compose mail      Pending: 0
-<h/H>      HTML / remote     <n>        New directory
-<ctrl-s>   Save attachments  <space>    Mark mail
-<pgdn/up>  Page              <ctrl-c>   Twice to quit
-<esc>      Back              <esc>      Back
-
+<t>        Read / unread     <c>        Compose mail      Pending: 0
+<ctrl-d>   Delete            <n>        New directory
+<h/H>      HTML / remote     <space>    Mark mail
+<ctrl-s>   Save attachments  <ctrl-c>   Twice to quit
+<pgdn/up>  Page              <esc>      Back
+<esc>      Back
 ┌────────────────────────────────── Message ───────────────────────────────────┐
 │Release planning — Kubernetes 1.35                                            │
 │From: alice@example.com                                                       │

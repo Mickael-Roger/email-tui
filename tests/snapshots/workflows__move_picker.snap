@@ -3,11 +3,11 @@ source: tests/workflows.rs
 expression: "capture(&mut app, 80, 24)"
 ---
 <?>        Help              <m>        Move mail         <0> Mail
-<ctrl-d>   Delete mail       <c>        Compose mail      Pending: 0
-<ent┌───────────────── Move mail · fuzzy directory filter ─────────────────┐
-<h/H│Filter:  arv                                                          │
-</> │work / Archive                                                        │
-    │                                                                      │
+<t>        Read / unread     <c>        Compose mail      Pending: 0
+<ctr┌───────────────── Move mail · fuzzy directory filter ─────────────────┐
+<ent│Filter:  arv                                                          │
+<h/H│work / Archive                                                        │
+</> │                                                                      │
     │                                                                      │
 ┌───│                                                                      │───┐
 │NAM│                                                                      │   │

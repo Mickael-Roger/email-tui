@@ -3,11 +3,11 @@ source: tests/workflows.rs
 expression: "capture(&mut app, w, h)"
 ---
 <?>        Help                                                 <m>        Move mail                                            <0> Mail                           __  __       _ _
-<ctrl-d>   Delete mail                                          <c>        Compose mail                                         Pending: 0                        |  \/  | __ _(_) |
-<enter>    Unfold / read                                        <n>        New directory                                                                          | |\/| |/ _` | | |
-<h/H>      HTML / remote                                        <space>    Mark mail                                                                              | |  | | (_| | | |
-</>        Local search                                         <ctrl-c>   Twice to quit                                                                          |_|  |_|\__,_|_|_|
-                                                                <esc>      Back                                                                                          T U I
+<t>        Read / unread                                        <c>        Compose mail                                         Pending: 0                        |  \/  | __ _(_) |
+<ctrl-d>   Delete mail                                          <n>        New directory                                                                          | |\/| |/ _` | | |
+<enter>    Unfold / read                                        <space>    Mark mail                                                                              | |  | | (_| | | |
+<h/H>      HTML / remote                                        <ctrl-c>   Twice to quit                                                                          |_|  |_|\__,_|_|_|
+</>        Local search                                         <esc>      Back                                                                                          T U I
 
 ┌────────────────────────────────────────────────────────────────────── Messages(all)[110 mail / 14 folders] ──────────────────────────────────────────────────────────────────────┐
 │NAME / SUBJECT                                                                                             FROM                                         DATE↓            NEW/TOTAL│
