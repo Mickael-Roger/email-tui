@@ -1,15 +1,20 @@
 # Architecture and data model
 
-## Local calendar and contact collections
+## Local calendar, task and contact collections
 
-`calendar.collections` and `contacts.books` configure independent vdirs, gated
-by their section's enabled flag. Numeric 0/1/2 selects Mail/Calendar/Contacts;
+`calendar.collections` and `contacts.books` configure independent vdirs; the
+`calendars` and `tasks` sections can discover collections under a parent directory.
+Sections are gated by their enabled flag. Numeric 0/1/2/3 selects Mail/Calendar/Contacts/Tasks;
 mail account namespaces are selected with `:ns`. `pim::Snapshot` holds records
 identified by collection and original file path, not by UID alone. Original
 source is retained to patch only edited properties and reject stale writes.
 PIM reads and confirmed writes use the blocking worker and an independent request
-generation; mail navigation does not cancel confirmed PIM operations. The main
-loop refreshes collections every five seconds, deferring while a modal is open.
+generation; mail navigation does not cancel confirmed PIM operations. Native
+directory notifications (`notify`, inotify on Linux) trigger a debounced reload,
+deferring while a modal is open. The watcher covers collection directories and
+their parents, handles atomic replacement/recreation, and ignores read access.
+A one-second clock updates running-event styles and requests cached occurrence
+recalculation at event boundaries; it does not read the filesystem.
 See [pim.md](pim.md) for file semantics, supported fields and series-level editing.
 
 ## Mail modules

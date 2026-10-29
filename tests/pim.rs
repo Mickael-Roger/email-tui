@@ -238,7 +238,7 @@ async fn resource_views_create_edit_filter_reload_and_delete_in_selected_collect
     key(&mut app, KeyCode::Enter);
     assert!(matches!(&app.overlay,Some(Overlay::PimDetails(s)) if s.contains("FREQ=YEARLY")));
     key(&mut app, KeyCode::Esc);
-    // External synchronization changes are picked up by the same reload as the timer.
+    // External synchronization changes use the same reload as directory notifications.
     let source = fs::read_to_string(&event_file)
         .unwrap()
         .replace("SUMMARY:Vacation", "SUMMARY:Synced");
@@ -307,6 +307,11 @@ assert card.validate()
     key(&mut app, KeyCode::Esc);
     for view in [View::Calendar, View::Contacts] {
         app.view = view;
+        app.row = app
+            .pim_tree_rows()
+            .iter()
+            .position(|row| matches!(row, mailtui::app::PimRow::Entry(_)))
+            .unwrap();
         for (w, h) in [(20, 6), (40, 12), (80, 24), (120, 40)] {
             render(&mut app, w, h);
             key(&mut app, KeyCode::Char('e'));
@@ -332,6 +337,92 @@ assert card.validate()
     drop(app);
     drop(events);
     worker.await.unwrap();
+}
+
+#[test]
+fn calendar_parent_discovers_collections_and_keeps_explicit_labels() {
+    let root = tempfile::tempdir().unwrap();
+    let calendars = root.path().join("calendars");
+    let work = collection(&calendars, "work");
+    let personal = collection(&calendars, "personal");
+    let empty = collection(&calendars, "empty");
+    collection(&calendars, ".hidden");
+    fs::write(calendars.join("metadata"), "ignored").unwrap();
+    fs::create_dir(personal.path.join("nested")).unwrap();
+    fs::write(work.path.join("event.ics"), ICS).unwrap();
+    fs::write(personal.path.join("event.ics"), ICS).unwrap();
+    fs::write(personal.path.join("nested/ignored.ics"), ICS).unwrap();
+    let path = root.path().join("config.toml");
+    fs::write(
+        &path,
+        format!("[calendars]\nenabled = true\npath = {:?}\n", calendars),
+    )
+    .unwrap();
+    let config = mailtui::config::Config::load(Some(path.clone())).unwrap();
+    assert!(config.calendar.enabled);
+    assert_eq!(
+        config
+            .calendar
+            .collections
+            .iter()
+            .map(|c| c.id.as_str())
+            .collect::<Vec<_>>(),
+        ["empty", "personal", "work"]
+    );
+    assert_eq!(config.calendar.collections[0].path, empty.path);
+    assert_eq!(config.calendar.collections[1].label, "personal");
+    let snapshot = pim::load(&config.calendar.collections, &[]);
+    assert_eq!(snapshot.events.len(), 2);
+    assert!(snapshot.warnings.is_empty());
+
+    fs::write(&path, format!(
+        "[calendars]\nenabled = true\npath = {:?}\n[[calendar.collections]]\nid = 'office'\nlabel = 'Travail'\npath = {:?}\n",
+        calendars, work.path
+    )).unwrap();
+    let config = mailtui::config::Config::load(Some(path)).unwrap();
+    assert_eq!(config.calendar.collections.len(), 3);
+    assert_eq!(config.calendar.collections[0].id, "office");
+    assert_eq!(config.calendar.collections[0].label, "Travail");
+}
+
+#[test]
+fn calendar_parent_validates_paths_collisions_and_disabled_discovery() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("config.toml");
+    let load = |text: String| {
+        fs::write(&path, text).unwrap();
+        mailtui::config::Config::load(Some(path.clone()))
+    };
+    assert!(load("[calendars]\nenabled = true\npath = 'relative'".into()).is_err());
+    let calendars = root.path().join("calendars");
+    assert!(
+        load(format!(
+            "[calendars]\nenabled = true\npath = {:?}",
+            calendars
+        ))
+        .is_err()
+    );
+    let disabled = load(format!(
+        "[calendars]\nenabled = false\npath = {:?}",
+        calendars
+    ))
+    .unwrap();
+    assert!(!disabled.calendar.enabled);
+    assert!(disabled.calendar.collections.is_empty());
+    fs::create_dir(&calendars).unwrap();
+    assert!(
+        load(format!(
+            "[calendars]\nenabled = true\npath = {:?}",
+            calendars
+        ))
+        .is_err()
+    );
+    collection(&calendars, "work");
+    let error = load(format!(
+        "[calendars]\nenabled = true\npath = {:?}\n[[calendar.collections]]\nid = 'work'\nlabel = 'Other'\npath = {:?}",
+        calendars, root.path().join("other")
+    )).unwrap_err();
+    assert!(error.to_string().contains("IDs unique"));
 }
 
 #[test]
@@ -402,6 +493,8 @@ async fn confirmed_pim_write_survives_mail_navigation_and_preserves_a_newer_comp
     settle(&mut app, &mut events).await;
     key(&mut app, KeyCode::Char('1'));
     settle(&mut app, &mut events).await;
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Down);
     app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL));
     key(&mut app, KeyCode::Char('y'));
     key(&mut app, KeyCode::Enter);

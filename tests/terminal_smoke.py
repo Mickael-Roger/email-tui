@@ -204,7 +204,7 @@ def main():
             send(b"y\r", "Contacts · 0 people".encode())
             assert not contact_files[0].exists()
             send(b"1", b"Updated Synced meeting")
-            send(b"\x04", b"Confirm deletion")
+            send(b"\x1b[B\x04", b"Confirm deletion")  # Calendar heading -> event.
             send(b"y\r", "Calendar · 0 entries".encode())
             assert not event_file.exists()
             send(b"0", b"Messages(all)")

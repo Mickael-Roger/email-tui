@@ -48,7 +48,7 @@ api_key_env = "MAILTUI_LLM_API_KEY"
 [[accounts]]
 id = "personal"
 # neverest_account = "personal" # defaults to this ID; always passed explicitly as -a
-# 0 = Mail; 1 = Calendar (when enabled); 2 = Contacts (when enabled).
+# 0 = Mail; 1 = Calendar; 2 = Contacts; 3 = Tasks (when enabled).
 # Select an individual mail account with :ns or :ns personal.
 # The account ID "all" is reserved for the all-accounts scope.
 label = "Personal"
@@ -65,6 +65,14 @@ store = "/home/your-user/.local/state/neverest/work"
 
 # Optional local vdir calendars. Set enabled=true after adapting these paths.
 # Use the same collection directories as khal/vdirsyncer (not khal's cache DB).
+# To discover all immediate calendar subdirectories at startup instead:
+# [calendars]
+# enabled = true
+# path = "/home/your-user/.local/share/calendars"
+# sync_command = ["vdirsyncer", "sync", "my_calendars"]
+# sync_timeout_seconds = 120
+# Each non-hidden subdirectory becomes a calendar, named after the directory.
+# Explicit collections below can still override the ID/label for the same path.
 [calendar]
 enabled = false
 [[calendar.collections]]
@@ -75,6 +83,15 @@ path = "/home/your-user/.local/share/calendars/personal"
 id = "work"
 label = "Work"
 path = "/home/your-user/.local/share/calendars/work"
+
+# Optional iCalendar VTODO task lists, one immediate subdirectory per list.
+# Synchronization runs via :sync in the Tasks view and after successful edits.
+# The command is an argument list, executed directly without a shell.
+[tasks]
+enabled = false
+path = "/home/your-user/.local/share/tasks"
+# sync_command = ["vdirsyncer", "sync", "my_tasks"]
+# sync_timeout_seconds = 120
 
 # Optional vCard address books, e.g. synchronized by vdirsyncer/CardDAV.
 [contacts]

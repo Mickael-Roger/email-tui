@@ -11,7 +11,32 @@ pub struct Config {
     pub llm: crate::llm::Config,
     pub accounts: Vec<AccountConfig>,
     pub calendar: CalendarConfig,
+    pub calendars: CalendarsConfig,
+    pub tasks: CalendarsConfig,
     pub contacts: ContactsConfig,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CalendarsConfig {
+    pub enabled: bool,
+    /// Parent directory whose immediate, non-hidden subdirectories are collections.
+    pub path: PathBuf,
+    pub sync_command: Vec<String>,
+    pub sync_timeout_seconds: u64,
+    #[serde(skip)]
+    pub collections: Vec<PimCollection>,
+}
+impl Default for CalendarsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            path: PathBuf::new(),
+            sync_command: vec![],
+            sync_timeout_seconds: 120,
+            collections: vec![],
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -119,15 +144,47 @@ impl Config {
                 .unwrap_or(user)
             }
         });
-        let config: Self = toml::from_str(
+        let mut config: Self = toml::from_str(
             &std::fs::read_to_string(&path)
                 .with_context(|| format!("Read {} (use --demo for fixtures)", path.display()))?,
         )
         .with_context(|| format!("Invalid configuration {}", path.display()))?;
+        config.discover_calendars()?;
+        if config.tasks.enabled {
+            config.tasks.collections = discover_collections(&config.tasks.path, &[], "tasks")?;
+        }
         config.validate()?;
         Ok(config)
     }
+    fn discover_calendars(&mut self) -> Result<()> {
+        if !self.calendars.enabled {
+            return Ok(());
+        }
+        let discovered = discover_collections(
+            &self.calendars.path,
+            &self.calendar.collections,
+            "calendars",
+        )?;
+        self.calendar.collections.extend(discovered);
+        self.calendar.enabled = true;
+        Ok(())
+    }
     pub fn validate(&self) -> Result<()> {
+        for (kind, config) in [("calendars", &self.calendars), ("tasks", &self.tasks)] {
+            if config.enabled && !config.path.is_absolute() {
+                bail!("{kind}.path must be absolute");
+            }
+            if config.sync_timeout_seconds == 0
+                || config
+                    .sync_command
+                    .first()
+                    .is_some_and(|s| s.trim().is_empty())
+            {
+                bail!(
+                    "{kind}: sync_command needs an executable and sync_timeout_seconds must be positive"
+                );
+            }
+        }
         self.llm.validate()?;
         if self
             .delivery
@@ -185,6 +242,7 @@ impl Config {
                 &self.calendar.collections,
             ),
             ("contacts", self.contacts.enabled, &self.contacts.books),
+            ("tasks", self.tasks.enabled, &self.tasks.collections),
         ] {
             let mut names = std::collections::HashSet::new();
             for collection in collections {
@@ -204,4 +262,43 @@ impl Config {
         }
         Ok(())
     }
+}
+
+fn discover_collections(
+    root: &std::path::Path,
+    explicit: &[PimCollection],
+    kind: &str,
+) -> Result<Vec<PimCollection>> {
+    if !root.is_absolute() {
+        bail!("{kind}.path must be absolute");
+    }
+    let mut discovered = Vec::new();
+    for entry in std::fs::read_dir(root)
+        .with_context(|| format!("Read {kind} directory {}", root.display()))?
+    {
+        let entry = entry.with_context(|| format!("Read {kind} directory {}", root.display()))?;
+        let name = entry.file_name();
+        let name = name
+            .to_str()
+            .context("Collection directory name must be valid UTF-8")?;
+        if name.starts_with('.') {
+            continue;
+        }
+        let path = entry.path();
+        if !path
+            .metadata()
+            .with_context(|| format!("Read {}", path.display()))?
+            .is_dir()
+            || explicit.iter().any(|c| c.path == path)
+        {
+            continue;
+        }
+        discovered.push(PimCollection {
+            id: name.into(),
+            label: name.into(),
+            path,
+        });
+    }
+    discovered.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(discovered)
 }

@@ -1,5 +1,5 @@
 use crate::{
-    app::{App, InputMode, Overlay, View, bindings},
+    app::{App, InputMode, Overlay, PimRow, View, bindings},
     mime::terminal_text,
     tree::{self, Node},
 };
@@ -11,6 +11,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Row, Table, TableState, Wrap},
 };
 use unicode_width::UnicodeWidthStr;
+mod task_editor;
 
 struct Palette {
     base: Style,
@@ -20,6 +21,10 @@ struct Palette {
     account: Color,
     selected: Style,
     border: Color,
+    ongoing: Style,
+    priority_high: Color,
+    priority_medium: Color,
+    priority_low: Color,
 }
 fn palette(theme: &str) -> Palette {
     match theme {
@@ -31,6 +36,10 @@ fn palette(theme: &str) -> Palette {
             account: Color::Reset,
             selected: Style::default().add_modifier(Modifier::REVERSED),
             border: Color::Reset,
+            ongoing: Style::default().add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+            priority_high: Color::Reset,
+            priority_medium: Color::Reset,
+            priority_low: Color::Reset,
         },
         "high-contrast" => Palette {
             base: Style::default().fg(Color::White).bg(Color::Black),
@@ -40,6 +49,13 @@ fn palette(theme: &str) -> Palette {
             account: Color::Indexed(214),
             selected: Style::default().fg(Color::Black).bg(Color::Yellow),
             border: Color::White,
+            ongoing: Style::default()
+                .fg(Color::Black)
+                .bg(Color::Green)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+            priority_high: Color::LightRed,
+            priority_medium: Color::Yellow,
+            priority_low: Color::LightGreen,
         },
         _ => Palette {
             base: Style::default().fg(Color::White).bg(Color::Black),
@@ -52,6 +68,13 @@ fn palette(theme: &str) -> Palette {
                 .bg(Color::Indexed(24))
                 .add_modifier(Modifier::BOLD),
             border: Color::Cyan,
+            ongoing: Style::default()
+                .fg(Color::White)
+                .bg(Color::Indexed(22))
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+            priority_high: Color::Red,
+            priority_medium: Color::Yellow,
+            priority_low: Color::Green,
         },
     }
 }
@@ -84,7 +107,12 @@ pub fn draw(frame: &mut Frame, app: &mut App, _preview: bool) {
         Constraint::Length(if !app.show_header {
             0
         } else if compact {
-            3
+            if app.task_collections.is_empty() && !matches!(app.view, View::Calendar | View::Tasks)
+            {
+                3
+            } else {
+                4
+            }
         } else {
             (app.accounts.len() + 1).clamp(7, 10) as u16
         }),
@@ -98,69 +126,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, _preview: bool) {
     app.page_height = parts[1].height.saturating_sub(3) as usize;
     match app.view {
         View::Messages => messages(frame, app, parts[1], &p),
-        View::Calendar => {
-            let mut labels = vec!["START", "EVENT"];
-            let mut widths = vec![Constraint::Length(20), Constraint::Min(10)];
-            if area.width >= 60 {
-                labels.push("CALENDAR");
-                widths.push(Constraint::Length(14));
-            }
-            if area.width >= 90 {
-                labels.push("LOCATION");
-                widths.push(Constraint::Length(18));
-            }
-            if area.width >= 115 {
-                labels.push("END");
-                widths.push(Constraint::Length(20));
-            }
-            let rows = app
-                .pim_rows()
-                .into_iter()
-                .map(|i| {
-                    let event = &app.calendar_events[i];
-                    let mut cells = vec![
-                        crate::pim::display_date(&event.start),
-                        text(&format!(
-                            "{}{}",
-                            if event.recurrence.is_empty() {
-                                ""
-                            } else {
-                                "↻ "
-                            },
-                            event.summary
-                        )),
-                    ];
-                    if area.width >= 60 {
-                        cells.push(text(&event.collection_label));
-                    }
-                    if area.width >= 90 {
-                        cells.push(text(&event.location));
-                    }
-                    if area.width >= 115 {
-                        cells.push(crate::pim::display_date(&event.end));
-                    }
-                    Row::new(cells)
-                })
-                .collect();
-            table(
-                frame,
-                app,
-                parts[1],
-                &p,
-                &format!(
-                    " Calendar · {} entries{} ",
-                    app.pim_rows().len(),
-                    if app.pim_loading {
-                        " · refreshing"
-                    } else {
-                        ""
-                    }
-                ),
-                labels,
-                rows,
-                widths,
-            );
-        }
+        View::Calendar | View::Tasks => pim_tree(frame, app, parts[1], &p),
         View::Contacts => {
             let mut labels = vec!["NAME"];
             let mut widths = vec![Constraint::Min(14)];
@@ -376,13 +342,20 @@ pub fn draw(frame: &mut Frame, app: &mut App, _preview: bool) {
                 .join("\n"),
         ),
     }
-    let context = if matches!(app.view, View::Calendar | View::Contacts) {
+    let context = if app.view.is_pim() {
         format!(
-            "{} collections · / filter · Enter details",
+            "{} collections · / filter · Enter {}",
             if app.view == View::Calendar {
                 app.calendar_collections.len()
+            } else if app.view == View::Tasks {
+                app.task_collections.len()
             } else {
                 app.contact_books.len()
+            },
+            if app.view == View::Tasks {
+                "edit"
+            } else {
+                "details"
             }
         )
     } else {
@@ -396,7 +369,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, _preview: bool) {
                 format!(
                     " {}({}) ",
                     app.view.name().to_lowercase(),
-                    if matches!(app.view, View::Calendar | View::Contacts) {
+                    if app.view.is_pim() {
                         "all collections".into()
                     } else {
                         text(app.account_name())
@@ -476,13 +449,14 @@ pub fn draw(frame: &mut Frame, app: &mut App, _preview: bool) {
     if let Some(overlay) = &app.overlay {
         let (title,body) = match overlay {
             Overlay::Assistant => { assistant(frame, app, area, &p); return; },
+            Overlay::TaskForm(editor) => { task_editor::draw(frame, app, area, &p, editor); return; },
             Overlay::Help => (" Keyboard help · ↑/↓ scroll · Esc close ",help("")),
             Overlay::PimDetails(body) => (" Entry details · ↑/↓ scroll · Esc close ",body.clone()),
             Overlay::Aliases => (" Resource aliases · Esc close ","mail, messages        Single account/folder/mail tree\nfolders, directories  Focus folder in Messages (same view)\ndir <path>            Expand/focus folder in active account\naccounts, acc, ns      Account namespace selector\nns <account|all>       Switch account scope\ninbox                 Expand inbox in current scope\nunified, all          All accounts with inboxes expanded\nsearch <query>        Results grouped in the Messages tree\nmore                  Next page of focused folder\noutbox / status       Pending operations / diagnostics\nhelp / history        Keyboard reference / commands\nquit, q               Exit".into()),
             Overlay::Confirm { ids,confirm } => { delete_dialog(frame,app,area,&p,ids,*confirm); return; }
             Overlay::Find { .. } | Overlay::Move { .. } | Overlay::CreateFolder { .. } | Overlay::Compose { .. } | Overlay::Files { .. } | Overlay::Attachments { .. } | Overlay::SaveAttachments { .. } | Overlay::PimForm { .. } => { form_dialog(frame, app, area, &p, overlay); return; }
             Overlay::Quit => (" Outgoing mail ",format!("{} messages have not finished sending.\n\nEnter: quit · Esc: return",app.pending.len())),
-            Overlay::PimDelete { contact,index,confirm } => (" Confirm deletion ",format!("Delete {}?\n{}\n\n{} · n/Esc cancel",text(if *contact {app.contacts.get(*index).map(|c|c.name.as_str()).unwrap_or("contact")} else {app.calendar_events.get(*index).map(|e|e.summary.as_str()).unwrap_or("event")}),if !*contact && app.calendar_events.get(*index).is_some_and(|e|!e.recurrence.is_empty()){"This deletes the entire recurring series, including exceptions."}else{""},if *confirm{"[Delete selected] Enter confirms"}else{"[Cancel selected] Press y to select Delete"})),
+            Overlay::PimDelete { contact,index,confirm } => (" Confirm deletion ",format!("Delete {}?\n{}\n\n{} · n/Esc cancel",text(if app.view == View::Tasks {app.tasks.get(*index).map(|t| t.summary.as_str()).unwrap_or("task")} else if *contact {app.contacts.get(*index).map(|c|c.name.as_str()).unwrap_or("contact")} else {app.calendar_events.get(*index).map(|e|e.summary.as_str()).unwrap_or("event")}),if !*contact && app.view != View::Tasks && app.calendar_events.get(*index).is_some_and(|e|!e.recurrence.is_empty()){"This deletes the entire recurring series, including exceptions."}else{""},if *confirm{"[Delete selected] Enter confirms"}else{"[Cancel selected] Press y to select Delete"})),
             Overlay::Url(url) => (" Browser viewer · private URL ",format!("{}\n\n{url}\n\nThis bearer URL expires automatically.\nExit revokes all sessions.\nEsc: close",
                 if std::env::var_os("SSH_CONNECTION").is_some() || std::env::var_os("SSH_TTY").is_some() { "SSH detected: this URL belongs to the remote host.\nUse an explicit localhost port forward to access it locally." } else { "Open this URL in your browser:" })),
         };
@@ -526,16 +500,15 @@ fn header(frame: &mut Frame, app: &App, area: Rect, p: &Palette, compact: bool) 
             Color::Magenta
         })
         .add_modifier(Modifier::BOLD);
-    let mut views = vec![(
-        0,
-        "Mail",
-        !matches!(app.view, View::Calendar | View::Contacts),
-    )];
+    let mut views = vec![(0, "Mail", !app.view.is_pim())];
     if !app.calendar_collections.is_empty() {
         views.push((1, "Calendar", app.view == View::Calendar));
     }
     if !app.contact_books.is_empty() {
         views.push((2, "Contacts", app.view == View::Contacts));
+    }
+    if !app.task_collections.is_empty() {
+        views.push((3, "Tasks", app.view == View::Tasks));
     }
     if compact {
         let columns = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
@@ -552,10 +525,20 @@ fn header(frame: &mut Frame, app: &App, area: Rect, p: &Palette, compact: bool) 
             columns[0],
         );
         frame.render_widget(
-            Paragraph::new(if matches!(app.view, View::Calendar | View::Contacts) {
-                "<c> Create · <e> Edit\n<enter> Details\n<Ctrl+D> Delete"
+            Paragraph::new(if matches!(app.view, View::Calendar | View::Tasks) {
+                format!(
+                    "<c/e> Create/edit\n<Ctrl+D> Delete\n<Ctrl+R> Synchronize\n<v> {}",
+                    pim_history_hint(app)
+                )
+            } else if app.view.is_pim() {
+                if app.view == View::Contacts {
+                    "<c> Create · <e> Edit\n<enter> Details\n<Ctrl+D> Delete"
+                } else {
+                    "<c/e> Create/edit\n<Ctrl+D> Delete\n<Ctrl+R> Synchronize"
+                }
+                .into()
             } else {
-                "<t> Read/unread\n<m> Move mail\n<c> Compose mail"
+                "<t> Read/unread\n<m> Move mail\n<c> Compose mail".into()
             })
             .style(key_style),
             columns[1],
@@ -576,6 +559,16 @@ fn header(frame: &mut Frame, app: &App, area: Rect, p: &Palette, compact: bool) 
             ("<c>", "New event"),
             ("<e>", "Edit event"),
             ("<ctrl-d>", "Delete event"),
+            ("<ctrl-r>", "Synchronize"),
+            ("<v>", pim_history_hint(app)),
+            ("<0>", "Mail"),
+        ],
+        View::Tasks => vec![
+            ("<c>", "New task"),
+            ("<e>", "Edit task / status"),
+            ("<ctrl-d>", "Delete task"),
+            ("<ctrl-r>", "Synchronize"),
+            ("<v>", pim_history_hint(app)),
             ("<0>", "Mail"),
         ],
         View::Contacts => vec![
@@ -610,9 +603,16 @@ fn header(frame: &mut Frame, app: &App, area: Rect, p: &Palette, compact: bool) 
             ("</>", "Local search"),
         ],
     };
-    let extra = if matches!(app.view, View::Calendar | View::Contacts) {
+    let extra = if app.view.is_pim() {
         [
-            ("<enter>", "Details"),
+            (
+                "<enter>",
+                if app.view == View::Tasks {
+                    "Fold / edit"
+                } else {
+                    "Fold / details"
+                },
+            ),
             ("</>", "Filter all collections"),
             ("<:reload>", "Reload files"),
             ("<?> ", "Help"),
@@ -662,16 +662,151 @@ fn header(frame: &mut Frame, app: &App, area: Rect, p: &Palette, compact: bool) 
                         ),
                     ])
                 })
-                .chain([Line::styled(
-                    app.pending_label(),
-                    Style::default().fg(p.muted),
-                )])
+                .chain(
+                    (!app.pending_label().is_empty())
+                        .then(|| Line::styled(app.pending_label(), Style::default().fg(p.muted))),
+                )
                 .collect::<Vec<_>>(),
         ),
         columns[2],
     );
     if logo_width > 0 {
         frame.render_widget(Paragraph::new(" __  __       _ _ \n|  \\/  | __ _(_) |\n| |\\/| |/ _` | | |\n| |  | | (_| | | |\n|_|  |_|\\__,_|_|_|\n       T U I      ").alignment(Alignment::Right).style(Style::default().fg(p.hot).add_modifier(Modifier::BOLD)),columns[3]);
+    }
+}
+
+fn pim_history_hint(app: &App) -> &'static str {
+    match (app.view, app.show_past_events, app.show_completed_tasks) {
+        (View::Calendar, false, _) => "Show past",
+        (View::Calendar, true, _) => "Hide past",
+        (_, _, false) => "Show closed",
+        _ => "Hide closed",
+    }
+}
+
+fn pim_tree(frame: &mut Frame, app: &mut App, area: Rect, p: &Palette) {
+    let tasks = app.view == View::Tasks;
+    let show_date = area.width >= if tasks { 70 } else { 50 };
+    let show_status = tasks && area.width >= 45;
+    let show_end = !tasks && area.width >= 75;
+    let mut labels = vec![if tasks {
+        "LIST / TASK"
+    } else {
+        "CALENDAR / EVENT"
+    }];
+    let mut widths = vec![Constraint::Min(12)];
+    if show_status {
+        labels.push("STATUS");
+        widths.push(Constraint::Length(13));
+    }
+    if show_date {
+        labels.push(if tasks { "DUE" } else { "START" });
+        widths.push(Constraint::Length(20));
+    }
+    if show_end {
+        labels.push("END");
+        widths.push(Constraint::Length(20));
+    }
+    let now = chrono::Utc::now();
+    let rows = app
+        .pim_tree_rows()
+        .into_iter()
+        .map(|row| {
+            let (name, status, date, end, style) = match row {
+                PimRow::Collection {
+                    index,
+                    count,
+                    expanded,
+                } => {
+                    let collection = &app.pim_collections()[index];
+                    (
+                        format!(
+                            "{} {} ({count})",
+                            if expanded { "▾" } else { "▸" },
+                            text(&collection.label)
+                        ),
+                        String::new(),
+                        String::new(),
+                        String::new(),
+                        Style::default().fg(p.account).add_modifier(Modifier::BOLD),
+                    )
+                }
+                PimRow::Entry(index) if tasks => {
+                    let t = &app.tasks[index];
+                    (
+                        format!("  {}", text(&t.summary)),
+                        text(crate::pim::task_status_label(&t.status)),
+                        crate::pim::display_task_due(&t.due),
+                        String::new(),
+                        task_priority_style(t, p),
+                    )
+                }
+                PimRow::Entry(index) => {
+                    let e = &app.calendar_events[index];
+                    let (start, end) = app.calendar_event_dates(e);
+                    (
+                        format!(
+                            "  {}{}",
+                            if e.recurrence.is_empty() { "" } else { "↻ " },
+                            text(&e.summary)
+                        ),
+                        String::new(),
+                        crate::pim::display_date(start),
+                        crate::pim::display_date(end),
+                        if app.calendar_event_is_ongoing(e, now) {
+                            p.ongoing
+                        } else {
+                            p.base
+                        },
+                    )
+                }
+            };
+            let mut cells = vec![name];
+            if show_status {
+                cells.push(status);
+            }
+            if show_date {
+                cells.push(date);
+            }
+            if show_end {
+                cells.push(end);
+            }
+            Row::new(cells).style(style)
+        })
+        .collect();
+    let scope = if tasks {
+        if app.show_completed_tasks {
+            "including closed"
+        } else {
+            "unfinished"
+        }
+    } else if app.show_past_events {
+        "including past"
+    } else {
+        "current / future"
+    };
+    let title = format!(
+        " {} · {} entries · {scope}{} ",
+        app.view.name(),
+        app.pim_rows().len(),
+        if app.pim_loading {
+            " · refreshing"
+        } else {
+            ""
+        }
+    );
+    table(frame, app, area, p, &title, labels, rows, widths);
+}
+
+fn task_priority_style(task: &crate::pim::Task, p: &Palette) -> Style {
+    if crate::pim::task_is_closed(&task.status) {
+        return Style::default().fg(p.muted);
+    }
+    match task.priority.parse::<u8>() {
+        Ok(1..=4) => p.base.fg(p.priority_high).add_modifier(Modifier::BOLD),
+        Ok(5) => p.base.fg(p.priority_medium).add_modifier(Modifier::ITALIC),
+        Ok(6..=9) => p.base.fg(p.priority_low).add_modifier(Modifier::DIM),
+        _ => p.base,
     }
 }
 
@@ -1073,7 +1208,13 @@ fn form_dialog(frame: &mut Frame, app: &App, area: Rect, p: &Palette, overlay: &
         Overlay::PimForm {
             contact, original, ..
         } => {
-            if *contact {
+            if app.view == View::Tasks {
+                if original.is_some() {
+                    " Edit task · Tab field · Enter save "
+                } else {
+                    " New task · Tab field · Enter save "
+                }
+            } else if *contact {
                 if original.is_some() {
                     " Edit contact · Tab field · Enter save "
                 } else {
@@ -1326,7 +1467,16 @@ fn form_dialog(frame: &mut Frame, app: &App, area: Rect, p: &Palette, overlay: &
             error,
             ..
         } => {
-            let labels: &[&str] = if *contact {
+            let labels: &[&str] = if app.view == View::Tasks {
+                &[
+                    "Summary",
+                    "Due (optional ICS date/time)",
+                    "Status (To do/IN-PROCESS/COMPLETED/CANCELLED)",
+                    "Priority (0–9)",
+                    "Description",
+                    "Start (optional)",
+                ]
+            } else if *contact {
                 &["Name", "Email", "Phone", "Organization"]
             } else {
                 &[
@@ -1356,6 +1506,8 @@ fn form_dialog(frame: &mut Frame, app: &App, area: Rect, p: &Palette, overlay: &
                 if position == 0 {
                     let groups = if *contact {
                         &app.contact_books
+                    } else if app.view == View::Tasks {
+                        &app.task_collections
                     } else {
                         &app.calendar_collections
                     };
@@ -1366,7 +1518,13 @@ fn form_dialog(frame: &mut Frame, app: &App, area: Rect, p: &Palette, overlay: &
                     frame.render_widget(
                         Paragraph::new(format!(
                             "{}: {} {}",
-                            if *contact { "Address book" } else { "Calendar" },
+                            if *contact {
+                                "Address book"
+                            } else if app.view == View::Tasks {
+                                "Task list"
+                            } else {
+                                "Calendar"
+                            },
                             text(label),
                             if original.is_some() {
                                 "(existing entry)"
@@ -1399,7 +1557,7 @@ fn form_dialog(frame: &mut Frame, app: &App, area: Rect, p: &Palette, overlay: &
                 );
             }
             frame.render_widget(
-                Paragraph::new(if app.pim_pending{"Saving locally…"}else if *contact{"Tab fields · Ctrl+S save · Esc cancel\n←/→ choose address book in first field"}else{"Tab fields · Ctrl+S save · Esc cancel\nDates: YYYYMMDD or YYYYMMDDTHHMMSS[Z] · all-day end exclusive"})
+                Paragraph::new(if app.pim_pending{"Saving locally…"}else if app.view == View::Tasks {"Tab fields · Ctrl+S save · Esc cancel\nDates: YYYYMMDD or YYYYMMDDTHHMMSS[Z] · ←/→ choose list"}else if *contact{"Tab fields · Ctrl+S save · Esc cancel\n←/→ choose address book in first field"}else{"Tab fields · Ctrl+S save · Esc cancel\nDates: YYYYMMDD or YYYYMMDDTHHMMSS[Z] · all-day end exclusive"})
                     .style(Style::default().fg(p.muted)),
                 parts[2],
             );
@@ -1645,5 +1803,6 @@ pub fn help(filter: &str) -> String {
         s.push_str(&format!("{:<14} {}\n", b.key, b.description));
     }
     s.push_str("\nLocal search\n/ opens the local search picker. Type words or fuzzy metadata.\nSearch sender, recipients, subject and downloaded body.\nUse arrows to choose a result, Enter to read it, Esc to return.\n\nNavigation\nArrows move; Enter folds/unfolds a branch or reads a message.\nh/H opens HTML without/with remote images; the page button toggles both.\nSpace marks a message; a selects visible messages. Ctrl+D confirms Trash.\nm moves mail, c composes, n creates a directory.\nThe composer and file picker show their own editing controls.\nCtrl+C twice within three seconds quits.\n\nCommands\n:ns / :accounts — selector; :ns <id|all> switches directly\n:dir <path> — open/focus a directory; :inbox / :unified — open inboxes\n:search <query> — local results in the tree; Esc returns\n:compose, :mkdir, :more, :reload, :outbox, :status, :help, :quit\n:unread, :flagged, :sort <field> [asc|desc], :theme <name>\n\nAutomatic updates\nMail, folder counts and search results update automatically.\nForms defer list updates until closed.\nPending shows outgoing mail until sending is confirmed; :outbox shows details.\n");
+    s.push_str("\nCalendars, contacts and tasks\n1 / :calendar opens calendars; 2 / :contacts opens contacts; 3 / :tasks opens tasks.\nc creates, e edits, Ctrl+D deletes, / filters, Ctrl+S saves a form.\n:sync in Calendar or Tasks runs the configured sync_command.\nSuccessful calendar/task writes also request synchronization when configured.\n");
     s
 }

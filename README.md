@@ -1,8 +1,8 @@
 # MailTUI
 
 Client email TUI **local-first**, en Rust, inspiré de k9s, avec calendriers et
-contacts locaux facultatifs. Les touches numériques sélectionnent les vues :
-**`0` Mail**, **`1` Calendrier**, **`2` Contacts**. Les deux dernières ne sont
+contacts et tâches locaux facultatifs. Les touches numériques sélectionnent les vues :
+**`0` Mail**, **`1` Calendrier**, **`2` Contacts**, **`3` Tâches**. Les trois dernières ne sont
 disponibles que si elles sont activées et configurées dans le TOML.
 
 La navigation mail utilise **une seule table `Messages`** et un seul curseur :
@@ -77,8 +77,8 @@ charge ses mails puis le cible sans fermer les autres dossiers.
 ### Comptes comme namespaces k9s
 
 - **`0`** : tous les comptes, matérialisés par les branches de l'arbre.
-- Les touches **`1` et `2`** sélectionnent désormais le calendrier et les contacts ;
-  les chiffres `3`…`9` ne sélectionnent plus de compte.
+- Les touches **`1`, `2` et `3`** sélectionnent le calendrier, les contacts et les tâches ;
+  les chiffres `4`…`9` ne sélectionnent pas de compte.
 - **`:ns`** ou `:accounts` : sélecteur comprenant la ligne `all`.
 - **`:ns work`**, **`:ns all`** : activation directe.
 
@@ -107,6 +107,9 @@ la vue Messages.
 - **Ctrl+D** agit sur les mails marqués, sinon le mail courant. Le popup
   démarre sur **Cancel** : Tab puis Entrée sélectionne **Delete** et déplace
   vers Trash. Une ligne compte/dossier seule ne supprime rien.
+  La corbeille est recherchée dans le compte du mail : le rôle `trash` est
+  prioritaire, sinon les noms comme `Trash`, `Trash/`, `INBOX.Trash` ou
+  `INBOX/Trash` sont reconnus, sans distinction de casse.
 - **i/u**, **y** : lu/non lu et copie (file pimdir pour les comptes réels).
 - **m** ouvre le popup de déplacement : taper un filtre de type fzf
   (sous-séquence, par exemple `prrmt`), choisir avec ↑/↓ ou Tab, puis Entrée.
@@ -125,13 +128,72 @@ Pour Ctrl+C, une première pression affiche une indication en bas ; une
 deuxième **dans les trois secondes** quitte. Après expiration, une nouvelle
 pression ouvre une nouvelle fenêtre de confirmation.
 
-## Calendriers et contacts
+## Calendriers, contacts et tâches
 
 Les vues **`1` Calendrier** et **`2` Contacts** utilisent des collections locales
 `.ics` et `.vcf`, compatibles avec les répertoires khal/khard et vdirsyncer.
 Elles sont désactivées par défaut. Plusieurs calendriers et carnets peuvent
 être configurés ; `c` crée, `e` modifie, Ctrl+D supprime, `/` filtre, et
-Ctrl+S enregistre dans le formulaire. Les fichiers sont relus automatiquement.
+Ctrl+S enregistre dans le formulaire. Les changements de fichiers sont détectés
+automatiquement par notifications natives (**inotify sous Linux**), sans relecture
+périodique des répertoires. Les événements sont regroupés sur environ 200 ms.
+
+Pour découvrir tous les calendriers d'un répertoire parent au démarrage, utilisez
+`[calendars]` avec `enabled = true` et `path = "/chemin/absolu/calendars"`.
+Chaque sous-répertoire direct non caché devient une collection, sans déclaration
+individuelle.
+
+La vue **`3` Tâches** (ou `:tasks`) utilise les fichiers `.ics` **VTODO**. La
+section `[tasks]` découvre ses listes de la même façon. `c` crée une tâche,
+`e` modifie son titre, échéance, statut, priorité ou description ; Ctrl+D supprime.
+
+L'éditeur de tâche est un **popup à champs encadrés** : menus de choix pour le
+statut, la priorité et la liste de destination à la création, calendrier pour les
+dates de début et d'échéance, description multiligne et boutons Save/Cancel.
+**Tab / Shift+Tab** passe d'un champ à l'autre ; **Entrée** ouvre un sélecteur ;
+**Ctrl+S** enregistre. Le calendrier permet une date seule, une heure facultative
+ou UTC, et de retirer une date avec Suppr.
+
+Les événements et les tâches sont regroupés sous leurs calendriers/listes,
+**repliés par défaut**. **Entrée** replie/déplie une branche, affiche les détails
+d'un événement ou ouvre le popup d'édition d'une tâche, comme `e`.
+Plusieurs branches peuvent rester ouvertes. `c` utilise la collection
+ciblée par défaut ; les lignes de collection ne sont pas modifiables ni supprimables.
+Les calendriers sans événement visible sont masqués. Les événements sont triés
+par leur date de début affichée dans chaque calendrier. Une série récurrente
+n'occupe qu'une ligne : **prochaine occurrence en cours ou à venir**, avec ses
+dates de début et de fin et le symbole `↻` devant le titre. La règle de récurrence
+reste dans le détail ; les dates du maître ne remplacent pas celles de l'occurrence.
+
+Par défaut, seuls les événements **en cours ou à venir** et les tâches **actives (ni terminées ni annulées)**
+sont affichés. **`v`** affiche/masque les événements passés dans Calendrier, et les
+tâches clôturées (terminées ou annulées) dans Tâches. Le bandeau indique le mode disponible ; les deux
+réglages sont indépendants. Les détails d'événement n'affichent pas le chemin du fichier ICS.
+
+Les tâches affichent **« To do »** pour `NEEDS-ACTION` et une échéance sans heure
+sans suffixe « all day ». Leurs priorités sont colorées : **1–4 rouge**, **5 jaune**,
+**6–9 vert** ; 0 reste neutre. Dans le calendrier, les événements en cours sont
+surlignés en vert et soulignés. Le lieu apparaît dans les détails, sans colonne
+Location dans la liste.
+
+```toml
+[calendars]
+enabled = true
+path = "/home/alice/.local/share/calendars"
+sync_command = ["vdirsyncer", "sync", "my_calendars"]
+sync_timeout_seconds = 120
+
+[tasks]
+enabled = true
+path = "/home/alice/.local/share/tasks"
+sync_command = ["vdirsyncer", "sync", "my_tasks"]
+sync_timeout_seconds = 120
+```
+
+Dans ces deux vues, **`Ctrl+R`** ou **`:sync`** lance la commande configurée en arrière-plan.
+Elle est aussi lancée après chaque création, modification ou suppression locale
+réussie. Sans `sync_command`, les opérations restent locales. Les arguments sont
+passés directement au programme, sans shell.
 
 Configuration TOML et détails des formats : **[docs/pim.md](docs/pim.md)**.
 

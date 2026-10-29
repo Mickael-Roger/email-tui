@@ -8,6 +8,110 @@ use io_pimdir::{
 };
 
 #[test]
+fn deleting_mail_resolves_slash_and_dot_trash_folders_in_each_account() {
+    use io_pimdir::capability::{MAIL, PimdirCapability, PimdirSupport};
+    use mailtui::{
+        config::AccountConfig,
+        domain::{Mutation, Scope},
+        storage::MailStore,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let mut configs = vec![];
+    let mut stores = vec![];
+    for (account, trash) in [("work", "Trash/"), ("personal", "INBOX.Trash")] {
+        let path = root.path().join(account);
+        let mut owner = PimdirStore::open(&path)
+            .unwrap()
+            .for_source("fixture")
+            .for_account(account);
+        for folder in ["INBOX", trash] {
+            owner.ensure_collection(folder, "message/rfc822").unwrap();
+            owner.set_collection_account(folder, Some(account)).unwrap();
+        }
+        owner.set_collection_role("INBOX", Some("inbox")).unwrap();
+        owner
+            .declare(
+                "fixture",
+                &MAIL
+                    .iter()
+                    .map(|name| PimdirCapability {
+                        collection: None,
+                        name: (*name).into(),
+                        support: PimdirSupport::Full,
+                        detail: None,
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
+        let raw = b"From: sender@example.com\r\nTo: me@example.com\r\nSubject: Delete me\r\nMessage-ID: <delete@example.com>\r\n\r\nMessage.\r\n";
+        let hash = owner.hash(raw);
+        let derived = mail::derive(raw);
+        owner
+            .write(vec![
+                PimdirWriteOp::StoreObject {
+                    object: PimdirObject {
+                        hash: hash.clone(),
+                        size: raw.len(),
+                    },
+                    body: Some(raw.to_vec()),
+                },
+                PimdirWriteOp::UpsertPlacement(PimdirPlacement {
+                    collection: "INBOX".into(),
+                    handle: PimdirHandle("1".into()),
+                    link_id: Some(derived.link_id),
+                    sort_key: derived.sort_key,
+                    summary: derived.summary,
+                    object: Some(hash),
+                    level: PimdirLevel::Full,
+                    flags: PimdirFlags::default(),
+                    status: PimdirStatus::Clean,
+                    base: None,
+                    conflict_revision: None,
+                    conflict_object: None,
+                    origin: None,
+                }),
+            ])
+            .unwrap();
+        configs.push(AccountConfig {
+            id: account.into(),
+            label: account.into(),
+            email: "me@example.com".into(),
+            store: path.clone(),
+            neverest_account: None,
+        });
+        stores.push((path, owner, trash));
+    }
+    let mut adapter = mailtui::storage::PimdirStore::new(configs);
+    let ids: Vec<_> = adapter
+        .messages(
+            &Scope {
+                inbox_only: true,
+                ..Default::default()
+            },
+            None,
+            10,
+        )
+        .unwrap()
+        .messages
+        .into_iter()
+        .map(|m| m.id)
+        .collect();
+    assert_eq!(ids.len(), 2);
+    adapter.mutate(&ids, &Mutation::Trash).unwrap();
+    for (path, mut owner, trash) in stores {
+        let reader = PimdirReader::open(path).unwrap();
+        let pending = reader.list_pending_actions().unwrap();
+        assert_eq!(pending.len(), 1);
+        assert!(
+            matches!(&pending[0].action, io_pimdir::codec::PimdirAction::Move { to, .. } if to.as_str() == trash)
+        );
+        owner.drain().unwrap();
+        assert_eq!(reader.count_items("INBOX").unwrap(), 0);
+        assert_eq!(reader.count_items(trash).unwrap(), 1);
+    }
+}
+
+#[test]
 fn real_pimdir_fixture_read_without_private_sql() {
     let dir = tempfile::tempdir().unwrap();
     let mut owner = PimdirStore::open(dir.path()).unwrap().for_source("fixture");

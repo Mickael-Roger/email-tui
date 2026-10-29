@@ -113,6 +113,7 @@ async fn main() -> Result<()> {
     app.llm = config.llm.clone();
     app.configure_pim(config.calendar.clone(), config.contacts.clone());
     app.reload(false);
+    app.configure_tasks_and_sync(&config.calendars, &config.tasks);
     if let Some(size) = args.snapshot {
         let (w, h) = size
             .split_once('x')
@@ -145,20 +146,39 @@ async fn main() -> Result<()> {
         let (html_tx, mut html_rx) = tokio::sync::mpsc::channel::<Result<String>>(2);
         let (send_tx, mut send_rx) = tokio::sync::mpsc::channel(16);
         let mut sender = mailtui::delivery::Sender::new(config.delivery.clone(), config.accounts.clone(), send_tx);
+        let (sync_tx, mut sync_rx) = tokio::sync::mpsc::channel(8);
+        let mut synchronizer = mailtui::pim_sync::Synchronizer::new(config.calendars.clone(), config.tasks.clone(), sync_tx);
         let mut maintenance = index_path.clone().map(|path| mailtui::index::Maintenance::start(path, config.accounts.clone()));
         let mut index_requests = 0usize;
         let mut assistant = config.llm.enabled.then(|| mailtui::llm::Assistant::new(config.llm.clone(), config.accounts.clone(), args.demo, index_path.clone()).with_pim(config.calendar.clone(),config.contacts.clone()));
         let mut changes = (!args.demo).then(|| mailtui::storage::Changes::watch(config.accounts.clone()));
         let mut previous_tokens = None;
+        let pim_paths = app.calendar_collections.iter().chain(&app.contact_books).chain(&app.task_collections).map(|collection| collection.path.clone()).collect::<Vec<_>>();
+        let mut pim_changes = if pim_paths.is_empty() { None } else {
+            match mailtui::pim_watch::Changes::start(pim_paths) {
+                Ok(changes) => { app.pim_files_changed(); Some(changes) }
+                Err(error) => { app.notify(format!("PIM directory watch: {error:#}")); None }
+            }
+        };
         let mut animation = tokio::time::interval(Duration::from_millis(300));
-        let mut pim_poll = tokio::time::interval(Duration::from_secs(5));
-        pim_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut pim_clock = tokio::time::interval(Duration::from_secs(1));
+        pim_clock.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         animation.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             terminal.draw(|frame| mailtui::tui::draw(frame, &mut app, config.ui.preview_pane))?;
             if app.quit { break; }
             tokio::select! {
-                _ = pim_poll.tick(), if !app.calendar_collections.is_empty() || !app.contact_books.is_empty() => app.reload_pim(),
+                _ = pim_clock.tick(), if !app.calendar_events.is_empty() => app.refresh_pim_clock(chrono::Utc::now()),
+                result = async { pim_changes.as_mut().unwrap().events.recv().await }, if pim_changes.is_some() => {
+                    if let Some(result) = result {
+                        app.pim_files_changed();
+                        if let Err(error) = result { app.notify(format!("PIM directory watch: {error}")); }
+                    } else { pim_changes = None; }
+                },
+                result = sync_rx.recv() => if let Some(result) = result {
+                    synchronizer.completed(result.target);
+                    app.sync_completed(result.target, result.error);
+                },
                 event = async { assistant.as_mut().unwrap().events.recv().await }, if assistant.is_some() => if let Some(event) = event {
                     if event.run == app.ai.run && let mailtui::llm::Update::LoginUrl(url) = &event.update {
                         let command = &config.viewer.browser_command;
@@ -216,6 +236,8 @@ async fn main() -> Result<()> {
                 }
             }
             app.refresh_if_idle();
+            app.refresh_pim_if_idle();
+            for target in app.sync_requests.drain() { synchronizer.request(target); }
             for command in app.ai.commands.drain(..) { if let Some(assistant) = &mut assistant { assistant.request(command); } }
             for account in app.send_requests.drain() { if !args.demo { sender.request(&account); } }
             if app.index_dirty {

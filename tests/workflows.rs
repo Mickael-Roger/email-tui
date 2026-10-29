@@ -561,7 +561,7 @@ fn active_keymap_has_no_conflicts_and_uses_numbers_for_resource_views() {
     assert_eq!(mailtui::app::dispatch(KeyCode::Char('d').into()), None);
     assert_eq!(
         mailtui::app::dispatch(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL)),
-        None
+        Some(Action::Sync)
     );
     assert_eq!(
         mailtui::app::dispatch(KeyCode::Char('0').into()),
@@ -1271,7 +1271,7 @@ async fn a_queued_submission_receipt_survives_navigation_and_requests_a_local_up
         generation: 0,
         result: Ok(vec![]),
     });
-    assert_eq!(app.pending_label(), "Pending: 0");
+    assert_eq!(app.pending_label(), "");
     assert!(app.toast.contains("Message queued"));
     settle(&mut app, &mut rx).await;
     finish(app, rx, current, worker).await;
@@ -1302,7 +1302,7 @@ async fn local_search_popup_coalesces_input_searches_bodies_and_opens_the_pointe
     ] {
         assert!(mailtui::app::dispatch(code.into()).is_none());
     }
-    for code in ['r', 'u', 'e', 'w', 'g', '\\', ' '] {
+    for code in ['u', 'e', 'w', 'g', '\\', ' '] {
         assert!(
             mailtui::app::dispatch(KeyEvent::new(KeyCode::Char(code), KeyModifiers::CONTROL))
                 .is_none()

@@ -121,7 +121,11 @@ All of the checks above passed:
   Stale writes/deletes fail after external file changes. Small-terminal rendering
   and hidden disabled views are exercised. The PTY test additionally creates,
   edits and deletes ICS/vCard files and observes an external change via the
-  actual five-second main-loop refresh timer.
+   native directory notifications wired into the main loop.
+   `tests/pim_watch.rs` exercises atomic saves, deletion, missing collections,
+   directory recreation, read-event suppression and deferred updates during forms.
+   Clock tests remove the backing ICS file and verify that occurrence transitions
+   still use cached documents, while an explicit reload does detect its removal.
   A confirmed PIM write also survives mail navigation without closing a newer
   mail composer. For independent format validation, run these tests with
   `MAILTUI_PIM_PYTHON=/path/to/python` pointing to a Python environment containing

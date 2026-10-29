@@ -3,7 +3,7 @@ source: tests/workflows.rs
 expression: "capture(&mut app, 80, 24)"
 ---
 <?>        Help              <m>        Move mail         <0> Mail
-<t>        Read / unread     <c>        Compose mail      Pending: 0
+<t>        Read / unread     <c>        Compose mail
 <ctrl-d>   Delete mail       <n>        New directory
 <enter>    Unfold / read     <space>    Mark mail
 <h/H>      HTML / remote     <ctrl-c>   Twice to quit
