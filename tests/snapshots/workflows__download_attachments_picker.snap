@@ -3,7 +3,7 @@ source: tests/workflows.rs
 expression: "capture(&mut app, 100, 28)"
 ---
 <?>        Help                     <m>        Move mail                <0> Mail
-<t>        Read / unread            <c>        Compose mail             Pending: 0
+<t>        Read / unread            <c>        Compose mail
 <ctrl┌──────────────────────── 📎 Attachments · select files to save ─────────────────────────┐
 <h/H>│Filter:  dnbi                                                                           │
 <ctrl│2 files · 0 selected                                                                    │

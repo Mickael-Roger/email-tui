@@ -95,6 +95,39 @@ fn in_scope(folder: &Folder, scope: &Scope) -> bool {
             || folder.name.eq_ignore_ascii_case("INBOX"))
 }
 
+fn trash_folder<'a>(folders: &'a [Folder], account: &str) -> Option<&'a Folder> {
+    folders
+        .iter()
+        .filter(|folder| folder.account == account)
+        .filter_map(|folder| {
+            let names = [folder.name.as_str(), folder.id.as_str()];
+            let rank = if folder
+                .role
+                .as_deref()
+                .is_some_and(|role| role.trim_start_matches('\\').eq_ignore_ascii_case("trash"))
+            {
+                0
+            } else if names.iter().any(|name| {
+                name.trim_end_matches(['/', '.'])
+                    .eq_ignore_ascii_case("trash")
+            }) {
+                1
+            } else if names.iter().any(|name| {
+                name.trim_end_matches(['/', '.'])
+                    .rsplit(['/', '.'])
+                    .next()
+                    .is_some_and(|leaf| leaf.eq_ignore_ascii_case("trash"))
+            }) {
+                2
+            } else {
+                return None;
+            };
+            Some((rank, folder))
+        })
+        .min_by(|(a_rank, a), (b_rank, b)| a_rank.cmp(b_rank).then(a.id.cmp(&b.id)))
+        .map(|(_, folder)| folder)
+}
+
 fn merge_page(mut all: Vec<Message>, mut cursor: Cursor, total: u64, limit: usize) -> Page {
     all.sort_by(|a, b| {
         b.date
@@ -290,14 +323,8 @@ impl MailStore for PimdirStore {
                     }
                 }
                 Mutation::Trash => {
-                    let to = folders
-                        .iter()
-                        .find(|f| {
-                            f.account == id.account
-                                && (f.role.as_deref() == Some("trash")
-                                    || f.name.eq_ignore_ascii_case("trash"))
-                        })
-                        .context("No Trash folder in this account")?;
+                    let to = trash_folder(&folders, &id.account)
+                        .with_context(|| format!("No Trash folder in account {}", id.account))?;
                     PimdirAction::Move {
                         seq: id.seq,
                         to: to.id.as_str().into(),
@@ -712,5 +739,84 @@ impl MailStore for DemoStore {
             }
         }
         Ok(MutationResult::AppliedLocal)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn folder(account: &str, id: &str, name: &str, role: Option<&str>) -> Folder {
+        Folder {
+            account: account.into(),
+            id: id.into(),
+            name: name.into(),
+            role: role.map(Into::into),
+            parent: None,
+            total: 0,
+            unread: 0,
+        }
+    }
+
+    #[test]
+    fn trash_names_support_slash_dot_and_namespaced_ids_without_substring_matches() {
+        for name in [
+            "Trash",
+            "Trash/",
+            "INBOX.Trash",
+            "INBOX/Trash",
+            ".Trash/",
+            "INBOX.tRaSh/",
+            "prefix/INBOX.Trash/",
+        ] {
+            let folders = [folder("work", name, name, None)];
+            assert_eq!(trash_folder(&folders, "work").unwrap().id, name);
+        }
+        let folders = [folder(
+            "work",
+            "namespace/INBOX.Trash/",
+            "Localized name",
+            None,
+        )];
+        assert_eq!(
+            trash_folder(&folders, "work").unwrap().id,
+            "namespace/INBOX.Trash/"
+        );
+        for name in [
+            "NotTrash",
+            "Trash-old",
+            "Trash/Projects",
+            "Trash.Children",
+            "INBOX",
+            "Archive",
+        ] {
+            assert!(
+                trash_folder(&[folder("work", name, name, None)], "work").is_none(),
+                "Unexpected Trash match: {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn declared_trash_wins_over_names_and_never_uses_another_accounts_folder() {
+        let mut folders = vec![
+            folder("personal", "Deleted", "Deleted", Some("trash")),
+            folder("work", "INBOX.Trash", "INBOX.Trash", None),
+            folder("work", "Trash/", "Trash/", None),
+            folder("work", "Corbeille", "Corbeille", Some("\\Trash")),
+        ];
+        assert_eq!(trash_folder(&folders, "work").unwrap().id, "Corbeille");
+        folders.reverse();
+        assert_eq!(trash_folder(&folders, "work").unwrap().id, "Corbeille");
+        folders.retain(|f| f.role.is_none());
+        assert_eq!(trash_folder(&folders, "work").unwrap().id, "Trash/");
+        assert!(trash_folder(&folders, "missing").is_none());
+        assert!(
+            trash_folder(
+                &[folder("personal", "Trash", "Trash", Some("trash"))],
+                "work"
+            )
+            .is_none()
+        );
     }
 }

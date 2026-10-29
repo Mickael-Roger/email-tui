@@ -378,7 +378,7 @@ impl PimTools {
                 },
                 delete_label
             ),
-            Change::Load => unreachable!(),
+            Change::Load | Change::Task { .. } => unreachable!(),
         };
         Ok((
             json!({"status":"proposed","applied":false,"action":name,"warnings":warnings}),

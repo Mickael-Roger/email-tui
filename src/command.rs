@@ -9,6 +9,8 @@ pub const COMMANDS: &[&str] = &[
     "mail",
     "calendar",
     "contacts",
+    "tasks",
+    "sync",
     "search",
     "unread",
     "flagged",
@@ -41,6 +43,7 @@ pub enum Command {
     Sort(String, bool),
     Theme(String),
     Reload,
+    Sync,
     More,
     Quit,
 }
@@ -72,6 +75,8 @@ pub fn parse(input: &str) -> Result<Command> {
         "messages" | "mail" => Command::View("mail"),
         "calendar" => Command::View("calendar"),
         "contacts" => Command::View("contacts"),
+        "tasks" => Command::View("tasks"),
+        "sync" => Command::Sync,
         "unread" => Command::View("unread"),
         "flagged" => Command::View("flagged"),
         "outbox" => Command::View("outbox"),
@@ -125,9 +130,10 @@ mod tests {
     use super::*;
     #[test]
     fn aliases_quotes_and_rejection() {
-        assert!(parse("sync").is_err());
+        assert_eq!(parse("sync").unwrap(), Command::Sync);
+        assert_eq!(parse("tasks").unwrap(), Command::View("tasks"));
         assert!(parse("sync all").is_err());
-        assert!(!COMMANDS.contains(&"sync"));
+        assert!(COMMANDS.contains(&"sync"));
         assert_eq!(parse("fo").unwrap(), Command::View("folders"));
         assert_eq!(parse("directories").unwrap(), Command::View("folders"));
         assert_eq!(parse("dir").unwrap(), Command::View("folders"));

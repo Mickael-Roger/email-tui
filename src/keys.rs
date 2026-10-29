@@ -37,6 +37,8 @@ pub enum Action {
     SaveAttachments,
     Assistant,
     Reload,
+    Sync,
+    TogglePimHistory,
     Quit,
     Compose,
     CreateFolder,
@@ -304,6 +306,27 @@ pub fn bindings() -> Vec<Binding> {
             "2",
             Action::ViewSlot(2),
             "Contacts view when configured",
+        ),
+        (
+            Char('3'),
+            M::NONE,
+            "3",
+            Action::ViewSlot(3),
+            "Tasks view when configured",
+        ),
+        (
+            Char('r'),
+            M::CONTROL,
+            "Ctrl+r",
+            Action::Sync,
+            "Synchronize calendars or tasks · :sync",
+        ),
+        (
+            Char('v'),
+            M::NONE,
+            "v",
+            Action::TogglePimHistory,
+            "Show/hide past events or closed tasks",
         ),
     ];
     definitions
