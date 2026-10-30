@@ -48,7 +48,7 @@ api_key_env = "MAILTUI_LLM_API_KEY"
 [[accounts]]
 id = "personal"
 # neverest_account = "personal" # defaults to this ID; always passed explicitly as -a
-# 0 = Mail; 1 = Calendar; 2 = Contacts; 3 = Tasks (when enabled).
+# 0 = Mail; 1 = Calendar (when enabled); 2 = Contacts; 3 = Tasks (when enabled).
 # Select an individual mail account with :ns or :ns personal.
 # The account ID "all" is reserved for the all-accounts scope.
 label = "Personal"
@@ -93,9 +93,16 @@ path = "/home/your-user/.local/share/tasks"
 # sync_command = ["vdirsyncer", "sync", "my_tasks"]
 # sync_timeout_seconds = 120
 
-# Optional vCard address books, e.g. synchronized by vdirsyncer/CardDAV.
+# Contacts view is always available, with read-only correspondents from SQLite.
+# Enable this section to also load/synchronize local vCard address books via CardDAV.
 [contacts]
 enabled = false
+# Optional parent directory: each immediate non-hidden subdirectory is a book.
+# path = "/home/your-user/.local/share/contacts"
+# :sync / Ctrl+R in Contacts and successful writes run this command directly.
+# CardDAV credentials and server URL belong in vdirsyncer's configuration.
+# sync_command = ["vdirsyncer", "sync", "my_contacts"]
+# sync_timeout_seconds = 120
 [[contacts.books]]
 id = "personal"
 label = "Personal contacts"

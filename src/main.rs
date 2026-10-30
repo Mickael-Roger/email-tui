@@ -147,7 +147,7 @@ async fn main() -> Result<()> {
         let (send_tx, mut send_rx) = tokio::sync::mpsc::channel(16);
         let mut sender = mailtui::delivery::Sender::new(config.delivery.clone(), config.accounts.clone(), send_tx);
         let (sync_tx, mut sync_rx) = tokio::sync::mpsc::channel(8);
-        let mut synchronizer = mailtui::pim_sync::Synchronizer::new(config.calendars.clone(), config.tasks.clone(), sync_tx);
+        let mut synchronizer = mailtui::pim_sync::Synchronizer::new(config.calendars.clone(), config.tasks.clone(), sync_tx).with_contacts(&config.contacts);
         let mut maintenance = index_path.clone().map(|path| mailtui::index::Maintenance::start(path, config.accounts.clone()));
         let mut index_requests = 0usize;
         let mut assistant = config.llm.enabled.then(|| mailtui::llm::Assistant::new(config.llm.clone(), config.accounts.clone(), args.demo, index_path.clone()).with_pim(config.calendar.clone(),config.contacts.clone()));

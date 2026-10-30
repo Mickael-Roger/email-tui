@@ -30,7 +30,7 @@
    focused, then confirmation), and Shift+N/A/P/S sort name/age/namespace/status. The keyboard reference
    is generated from the reduced registry; arrows replace letter navigation.
    Accounts use the namespace model through `:ns`; numeric shortcuts now select
-   resource views: 0 = Mail, 1 = optional Calendar, 2 = optional Contacts.
+   resource views: 0 = Mail, 1 = optional Calendar, 2 = Contacts (mail index and optional CardDAV books), 3 = optional Tasks.
    This supersedes both numeric account selection and the initial design's ban
   on the namespace alias and its proposed Ctrl+D half-page binding.
   Verified against the README and `internal/view/browser.go` namespace

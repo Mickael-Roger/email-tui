@@ -124,6 +124,7 @@ async fn external_pim_updates_are_deferred_during_a_form_and_reloaded_when_it_cl
         ContactsConfig {
             enabled: true,
             books: vec![contacts],
+            ..Default::default()
         },
     );
     app.configure_tasks_and_sync(

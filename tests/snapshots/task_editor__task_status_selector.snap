@@ -3,7 +3,7 @@ source: tests/task_editor.rs
 expression: "capture(app, 100, 32)"
 ---
 <c>        New task                 <enter>    Fold / edit              <0> Mail
-<e>        Edit task / status       </>        Filter all collections   <3> Tasks
+<e>        Edit task / status       </>        Filter all collections   <2> Contacts
 <ctrl-d>┌─────────────────────────────────── Edit task ────────────────────────────────────┐
 <ctrl-r>│┌ Task list · fixed ─────────────────────────────────────────────────────────────┐│
 <v>     ││Work                                                                            ││

@@ -51,6 +51,7 @@ async fn calendar_contact_tools_work_on_chat_responses_and_codex_and_apply_throu
                 label: "Book".into(),
                 path: book_path.clone(),
             }],
+            ..Default::default()
         };
         let mut cfg = config();
         let server = if transport == "codex" {

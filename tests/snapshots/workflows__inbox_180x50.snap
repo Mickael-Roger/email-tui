@@ -3,7 +3,7 @@ source: tests/workflows.rs
 expression: "capture(&mut app, w, h)"
 ---
 <?>        Help                                                 <m>        Move mail                                            <0> Mail                           __  __       _ _
-<t>        Read / unread                                        <c>        Compose mail                                                                           |  \/  | __ _(_) |
+<t>        Read / unread                                        <c>        Compose mail                                         <2> Contacts                      |  \/  | __ _(_) |
 <ctrl-d>   Delete mail                                          <n>        New directory                                                                          | |\/| |/ _` | | |
 <enter>    Unfold / read                                        <space>    Mark mail                                                                              | |  | | (_| | | |
 <h/H>      HTML / remote                                        <ctrl-c>   Twice to quit                                                                          |_|  |_|\__,_|_|_|

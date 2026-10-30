@@ -48,6 +48,67 @@ pub fn path(accounts: &[AccountConfig]) -> Result<PathBuf> {
 }
 
 impl SearchIndex {
+    /// Derive correspondents exclusively from indexed headers, never from bodies.
+    pub fn contacts(&self) -> Result<Vec<crate::pim::Contact>> {
+        let mut contacts = std::collections::BTreeMap::<String, crate::pim::Contact>::new();
+        let mut statement = self
+            .db
+            .prepare("SELECT sender, recipient FROM mail ORDER BY date DESC, rowid DESC")?;
+        let rows = statement.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let parser = mail_parser::MessageParser::default();
+        for row in rows {
+            let (sender, recipients) = row?;
+            for header in [sender, recipients] {
+                let raw = format!("From: {}\r\n\r\n", header.replace(['\r', '\n'], " "));
+                let Some(message) = parser.parse(raw.as_bytes()) else {
+                    continue;
+                };
+                let Some(addresses) = message.from() else {
+                    continue;
+                };
+                for address in addresses.iter() {
+                    let Some(email) = address.address().map(str::trim) else {
+                        continue;
+                    };
+                    if !email
+                        .split_once('@')
+                        .is_some_and(|(local, domain)| !local.is_empty() && !domain.is_empty())
+                        || email.chars().any(|c| c.is_whitespace() || c.is_control())
+                    {
+                        continue;
+                    }
+                    let key = email.to_lowercase();
+                    let name = address
+                        .name()
+                        .filter(|name| !name.trim().is_empty())
+                        .unwrap_or(email);
+                    let contact =
+                        contacts
+                            .entry(key.clone())
+                            .or_insert_with(|| crate::pim::Contact {
+                                book: "mail-contacts".into(),
+                                book_label: "Mail · SQLite index".into(),
+                                uid: key,
+                                name: name.into(),
+                                email: email.into(),
+                                phone: String::new(),
+                                organization: String::new(),
+                                addresses: Default::default(),
+                                file: PathBuf::new(),
+                                source: String::new(),
+                            });
+                    if contact.name.eq_ignore_ascii_case(&contact.email) && name != email {
+                        contact.name = name.into();
+                    }
+                }
+            }
+        }
+        let mut contacts: Vec<_> = contacts.into_values().collect();
+        contacts.sort_by_key(|contact| (contact.name.to_lowercase(), contact.email.to_lowercase()));
+        Ok(contacts)
+    }
     fn remove_key(&self, key: &str) -> Result<()> {
         let transaction = self.db.unchecked_transaction()?;
         self.remove_key_inner(key)?;

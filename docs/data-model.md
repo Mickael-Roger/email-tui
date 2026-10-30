@@ -3,8 +3,13 @@
 ## Local calendar, task and contact collections
 
 `calendar.collections` and `contacts.books` configure independent vdirs; the
-`calendars` and `tasks` sections can discover collections under a parent directory.
-Sections are gated by their enabled flag. Numeric 0/1/2/3 selects Mail/Calendar/Contacts/Tasks;
+`calendars`, `tasks`, and `contacts` sections can discover collections under a parent directory.
+Local collections are gated by their enabled flag. Contacts is always available:
+the worker also derives read-only correspondents from sender/recipient columns of
+MailTUI's SQLite index, deduplicated by case-insensitive email and grouped separately
+from editable CardDAV books. Contacts sync uses the same background synchronizer
+as calendars/tasks, including post-write sync and reload on completion.
+Numeric 0/1/2/3 selects Mail/Calendar/Contacts/Tasks;
 mail account namespaces are selected with `:ns`. `pim::Snapshot` holds records
 identified by collection and original file path, not by UID alone. Original
 source is retained to patch only edited properties and reject stale writes.

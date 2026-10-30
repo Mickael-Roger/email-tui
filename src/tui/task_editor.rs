@@ -16,7 +16,7 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
-fn popup(area: Rect, width: u16, height: u16) -> Rect {
+pub(super) fn popup(area: Rect, width: u16, height: u16) -> Rect {
     let width = width
         .min(area.width.saturating_sub(2))
         .max(1)
@@ -251,7 +251,7 @@ fn priority_color(p: &Palette, priority: usize) -> ratatui::style::Color {
         _ => p.base.fg.unwrap_or(ratatui::style::Color::Reset),
     }
 }
-fn draw_input(
+pub(super) fn draw_input(
     frame: &mut Frame,
     rect: Rect,
     input: &Input,

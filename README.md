@@ -1,9 +1,9 @@
 # MailTUI
 
-Client email TUI **local-first**, en Rust, inspiré de k9s, avec calendriers et
-contacts et tâches locaux facultatifs. Les touches numériques sélectionnent les vues :
-**`0` Mail**, **`1` Calendrier**, **`2` Contacts**, **`3` Tâches**. Les trois dernières ne sont
-disponibles que si elles sont activées et configurées dans le TOML.
+Client email TUI **local-first**, en Rust, inspiré de k9s, avec contacts issus des
+mails, carnets CardDAV et calendriers et tâches locaux facultatifs. Les touches numériques sélectionnent les vues :
+**`0` Mail**, **`1` Calendrier**, **`2` Contacts**, **`3` Tâches**. Calendrier et Tâches
+sont disponibles quand ils sont activés et configurés dans le TOML ; Contacts est toujours accessible.
 
 La navigation mail utilise **une seule table `Messages`** et un seul curseur :
 
@@ -130,9 +130,22 @@ pression ouvre une nouvelle fenêtre de confirmation.
 
 ## Calendriers, contacts et tâches
 
-Les vues **`1` Calendrier** et **`2` Contacts** utilisent des collections locales
-`.ics` et `.vcf`, compatibles avec les répertoires khal/khard et vdirsyncer.
-Elles sont désactivées par défaut. Plusieurs calendriers et carnets peuvent
+La vue **`2` Contacts** (ou `:contacts`) propose deux catégories repliables :
+- **Mail** : expéditeurs et destinataires présents dans l'index SQLite, dédupliqués
+  par adresse email sans distinction de casse, en lecture seule. La vue se rafraîchit
+  lorsque l'index évolue ; seuls les messages déjà indexés y contribuent.
+- **CardDAV** : carnets locaux `.vcf`, avec création, édition, suppression et
+  synchronisation via vdirsyncer. `:sync` ou **Ctrl+R** lance la synchronisation ;
+  chaque écriture réussie la déclenche également si elle est configurée.
+
+Le formulaire CardDAV propose des adresses **personnelle, professionnelle et autre**,
+avec rue multiligne, ville, région, code postal et pays, stockées dans les champs
+vCard `ADR` compatibles avec Zimbra. **PgUp / PgDn** change de section ; **Ctrl+S**
+enregistre l'ensemble de la fiche.
+
+La vue **`1` Calendrier** utilise des collections locales `.ics`, compatibles
+avec les répertoires khal et vdirsyncer. Les collections locales sont désactivées
+par défaut. Plusieurs calendriers et carnets peuvent
 être configurés ; `c` crée, `e` modifie, Ctrl+D supprime, `/` filtre, et
 Ctrl+S enregistre dans le formulaire. Les changements de fichiers sont détectés
 automatiquement par notifications natives (**inotify sous Linux**), sans relecture
@@ -142,6 +155,19 @@ Pour découvrir tous les calendriers d'un répertoire parent au démarrage, util
 `[calendars]` avec `enabled = true` et `path = "/chemin/absolu/calendars"`.
 Chaque sous-répertoire direct non caché devient une collection, sans déclaration
 individuelle.
+
+La même découverte est disponible pour les carnets CardDAV :
+
+```toml
+[contacts]
+enabled = true
+path = "/home/alice/.local/share/contacts"
+sync_command = ["vdirsyncer", "sync", "my_contacts"]
+sync_timeout_seconds = 120
+```
+
+Les URL et identifiants CardDAV se configurent dans vdirsyncer. Voir
+[la configuration CardDAV complète](docs/pim.md#contacts-mail-et-carddav).
 
 La vue **`3` Tâches** (ou `:tasks`) utilise les fichiers `.ics` **VTODO**. La
 section `[tasks]` découvre ses listes de la même façon. `c` crée une tâche,

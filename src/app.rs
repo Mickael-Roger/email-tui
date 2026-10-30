@@ -198,6 +198,8 @@ pub enum Overlay {
         fields: Vec<Input>,
         field: usize,
         error: Option<String>,
+        book_menu: Option<usize>,
+        contact_page: usize,
     },
     PimDelete {
         contact: bool,
@@ -442,7 +444,27 @@ pub fn start_worker_with_index(
                         crate::pim::refresh_occurrences(&mut snapshot, now);
                         Ok(*snapshot)
                     } else {
-                        crate::pim::execute_with_tasks(&calendars, &books, &tasks, *change)
+                        crate::pim::execute_with_tasks(&calendars, &books, &tasks, *change).map(
+                            |mut snapshot| {
+                                let contacts = (|| -> anyhow::Result<_> {
+                                    let index = if let Some(path) = &index_path {
+                                        crate::search::SearchIndex::reader(path)?
+                                    } else {
+                                        let index = crate::search::SearchIndex::new()?;
+                                        index.fill_store(store.as_ref())?;
+                                        index
+                                    };
+                                    index.contacts()
+                                })();
+                                match contacts {
+                                    Ok(contacts) => snapshot.contacts.extend(contacts),
+                                    Err(error) => {
+                                        snapshot.warnings.push(format!("Mail contacts: {error:#}"))
+                                    }
+                                }
+                                snapshot
+                            },
+                        )
                     };
                     Ok(Event::Pim {
                         generation,
@@ -632,6 +654,7 @@ pub struct App {
     pub task_collections: Vec<crate::config::PimCollection>,
     pub tasks: Vec<crate::pim::Task>,
     pub expanded_calendars: HashSet<String>,
+    pub expanded_contact_categories: HashSet<String>,
     pub expanded_task_lists: HashSet<String>,
     pub show_past_events: bool,
     pub show_completed_tasks: bool,
@@ -722,6 +745,7 @@ impl App {
             task_collections: vec![],
             tasks: vec![],
             expanded_calendars: HashSet::new(),
+            expanded_contact_categories: HashSet::new(),
             expanded_task_lists: HashSet::new(),
             show_past_events: false,
             show_completed_tasks: false,
@@ -793,6 +817,11 @@ impl App {
         calendar: crate::config::CalendarConfig,
         contacts: crate::config::ContactsConfig,
     ) {
+        if contacts.enabled && !contacts.sync_command.is_empty() {
+            self.sync_enabled.insert(crate::pim_sync::Target::Contacts);
+        } else {
+            self.sync_enabled.remove(&crate::pim_sync::Target::Contacts);
+        }
         self.calendar_collections = if calendar.enabled {
             calendar.collections
         } else {
@@ -806,13 +835,7 @@ impl App {
         self.reload_pim();
     }
     pub fn reload_pim(&mut self) {
-        if self.pim_loading
-            || self.pim_pending
-            || self.overlay.is_some()
-            || (self.calendar_collections.is_empty()
-                && self.contact_books.is_empty()
-                && self.task_collections.is_empty())
-        {
+        if self.pim_loading || self.pim_pending || self.overlay.is_some() {
             return;
         }
         self.pim_request(crate::pim::Change::Load);
@@ -846,14 +869,7 @@ impl App {
             && !self.pim_pending
             && self.overlay.is_none()
         {
-            self.pim_refresh_requested = if self.calendar_collections.is_empty()
-                && self.contact_books.is_empty()
-                && self.task_collections.is_empty()
-            {
-                false
-            } else {
-                !self.pim_request(crate::pim::Change::Load)
-            };
+            self.pim_refresh_requested = !self.pim_request(crate::pim::Change::Load);
         }
     }
     pub fn pim_files_changed(&mut self) {
@@ -896,8 +912,9 @@ impl App {
         let target = match self.view {
             View::Calendar => crate::pim_sync::Target::Calendars,
             View::Tasks => crate::pim_sync::Target::Tasks,
+            View::Contacts => crate::pim_sync::Target::Contacts,
             _ => {
-                self.notify(":sync is available in Calendar and Tasks");
+                self.notify(":sync is available in Calendar, Contacts and Tasks");
                 return;
             }
         };
@@ -930,11 +947,22 @@ impl App {
             crate::pim::Change::Task { entry, .. } => {
                 Some((View::Tasks, entry.collection.clone(), entry.uid.clone()))
             }
+            crate::pim::Change::Contact { entry, .. } => {
+                Some((View::Contacts, entry.book.clone(), entry.uid.clone()))
+            }
             _ => None,
         };
         let target = match &change {
             crate::pim::Change::Event { .. } => Some(crate::pim_sync::Target::Calendars),
             crate::pim::Change::Task { .. } => Some(crate::pim_sync::Target::Tasks),
+            crate::pim::Change::Contact { .. } => Some(crate::pim_sync::Target::Contacts),
+            crate::pim::Change::Delete { source, .. }
+                if source
+                    .lines()
+                    .any(|l| l.eq_ignore_ascii_case("BEGIN:VCARD")) =>
+            {
+                Some(crate::pim_sync::Target::Contacts)
+            }
             crate::pim::Change::Delete { source, .. }
                 if source
                     .lines()
@@ -1631,8 +1659,19 @@ impl App {
                 .enumerate()
                 .filter(|(_, c)| {
                     format!(
-                        "{} {} {} {} {} {}",
-                        c.book, c.book_label, c.name, c.email, c.phone, c.organization
+                        "{} {} {} {} {} {} {} {}",
+                        c.book,
+                        c.book_label,
+                        c.name,
+                        c.email,
+                        c.phone,
+                        c.organization,
+                        if c.is_mail() { "Mail" } else { "CardDAV" },
+                        c.addresses
+                            .iter()
+                            .map(|address| address.display())
+                            .collect::<Vec<_>>()
+                            .join(" ")
                     )
                     .to_lowercase()
                     .contains(&needle)
@@ -1657,7 +1696,9 @@ impl App {
             .is_some_and(|occurrence| occurrence.is_ongoing(now))
     }
     pub fn pim_collections(&self) -> &[crate::config::PimCollection] {
-        if self.view == View::Tasks {
+        if self.view == View::Contacts {
+            crate::pim::contact_categories()
+        } else if self.view == View::Tasks {
             &self.task_collections
         } else {
             &self.calendar_collections
@@ -1665,22 +1706,23 @@ impl App {
     }
     pub fn pim_tree_rows(&self) -> Vec<PimRow> {
         let entries = self.pim_rows();
-        if self.view == View::Contacts {
-            return entries.into_iter().map(PimRow::Entry).collect();
-        }
-        if !matches!(self.view, View::Calendar | View::Tasks) {
+        if !self.view.is_pim() {
             return vec![];
         }
         let mut grouped: HashMap<&str, Vec<usize>> = HashMap::new();
         for index in entries {
-            let collection = if self.view == View::Tasks {
+            let collection = if self.view == View::Contacts {
+                self.contacts[index].category()
+            } else if self.view == View::Tasks {
                 &self.tasks[index].collection
             } else {
                 &self.calendar_events[index].collection
             };
             grouped.entry(collection).or_default().push(index);
         }
-        let expanded = if self.view == View::Tasks {
+        let expanded = if self.view == View::Contacts {
+            &self.expanded_contact_categories
+        } else if self.view == View::Tasks {
             &self.expanded_task_lists
         } else {
             &self.expanded_calendars
@@ -1730,7 +1772,17 @@ impl App {
                         &self.calendar_events[*index].file,
                     ),
                     View::Tasks => (&self.tasks[*index].collection, &self.tasks[*index].file),
-                    View::Contacts => (&self.contacts[*index].book, &self.contacts[*index].file),
+                    View::Contacts => {
+                        let contact = &self.contacts[*index];
+                        return Some(PimRowKey::Entry {
+                            collection: contact.category().into(),
+                            file: if contact.is_mail() {
+                                contact.uid.clone().into()
+                            } else {
+                                contact.file.clone()
+                            },
+                        });
+                    }
                     _ => return None,
                 };
                 Some(PimRowKey::Entry {
@@ -1751,7 +1803,14 @@ impl App {
                 (PimRow::Entry(index), PimRowKey::Entry { file, .. }) => match self.view {
                     View::Calendar => &self.calendar_events[*index].file == file,
                     View::Tasks => &self.tasks[*index].file == file,
-                    View::Contacts => &self.contacts[*index].file == file,
+                    View::Contacts => {
+                        let contact = &self.contacts[*index];
+                        if contact.is_mail() {
+                            std::path::Path::new(&contact.uid) == file
+                        } else {
+                            &contact.file == file
+                        }
+                    }
                     _ => false,
                 },
                 _ => false,
@@ -1782,7 +1841,9 @@ impl App {
             return false;
         };
         let id = self.pim_collections()[index].id.clone();
-        let expanded = if self.view == View::Tasks {
+        let expanded = if self.view == View::Contacts {
+            &mut self.expanded_contact_categories
+        } else if self.view == View::Tasks {
             &mut self.expanded_task_lists
         } else {
             &mut self.expanded_calendars
@@ -1867,6 +1928,9 @@ impl App {
         }
     }
     pub fn index_changed(&mut self) {
+        if self.view == View::Contacts {
+            self.pim_files_changed();
+        }
         if let Some(Overlay::Find { loading, again, .. }) = &mut self.overlay {
             if *loading {
                 *again = true;
@@ -2315,6 +2379,14 @@ impl App {
             return;
         }
         let contact = self.view == View::Contacts;
+        if contact
+            && original
+                .and_then(|i| self.contacts.get(i))
+                .is_some_and(|c| c.is_mail())
+        {
+            self.notify("Mail contacts are derived from the index and are read-only");
+            return;
+        }
         let focused_collection = self
             .pim_focused_key()
             .and_then(|key| {
@@ -2362,7 +2434,7 @@ impl App {
             let collection = item
                 .and_then(|c| self.contact_books.iter().position(|b| b.id == c.book))
                 .unwrap_or(0);
-            let values = item
+            let mut values = item
                 .map(|c| {
                     vec![
                         c.name.clone(),
@@ -2372,6 +2444,19 @@ impl App {
                     ]
                 })
                 .unwrap_or_else(|| vec![String::new(); 4]);
+            for kind in 0..3 {
+                let address = item
+                    .map(|c| &c.addresses[kind])
+                    .cloned()
+                    .unwrap_or_default();
+                values.extend([
+                    address.street,
+                    address.city,
+                    address.region,
+                    address.postal_code,
+                    address.country,
+                ]);
+            }
             (collection, values)
         } else {
             if self.calendar_collections.is_empty() {
@@ -2414,6 +2499,8 @@ impl App {
                 .collect(),
             field: if original.is_some() { 1 } else { 0 },
             error: None,
+            book_menu: None,
+            contact_page: 0,
         });
     }
     fn pim_save(
@@ -2440,12 +2527,23 @@ impl App {
                 email: fields[1].text.clone(),
                 phone: fields[2].text.clone(),
                 organization: fields[3].text.clone(),
+                addresses: std::array::from_fn(|kind| {
+                    let start = 4 + kind * 5;
+                    crate::pim::PostalAddress {
+                        street: fields[start].text.clone(),
+                        city: fields[start + 1].text.clone(),
+                        region: fields[start + 2].text.clone(),
+                        postal_code: fields[start + 3].text.clone(),
+                        country: fields[start + 4].text.clone(),
+                        ..prior.map(|c| c.addresses[kind].clone()).unwrap_or_default()
+                    }
+                }),
                 file: prior.map(|c| c.file.clone()).unwrap_or_default(),
                 source: prior.map(|c| c.source.clone()).unwrap_or_default(),
             };
             if !self.pim_request(crate::pim::Change::Contact {
                 book: book.clone(),
-                entry: item,
+                entry: Box::new(item),
             }) {
                 anyhow::bail!("Unable to queue operation; retry");
             }
@@ -2580,19 +2678,115 @@ impl App {
                 mut fields,
                 mut field,
                 mut error,
+                mut book_menu,
+                mut contact_page,
             } = overlay
             {
                 if self.pim_pending {
                     return;
                 }
-                let length = fields.len() + 1;
+                if let Some(mut row) = book_menu {
+                    let count = self.contact_books.len();
+                    match key.code {
+                        KeyCode::Esc => book_menu = None,
+                        KeyCode::Up => row = row.saturating_sub(1),
+                        KeyCode::Down => row = (row + 1).min(count.saturating_sub(1)),
+                        KeyCode::Home => row = 0,
+                        KeyCode::End => row = count.saturating_sub(1),
+                        KeyCode::Enter => {
+                            collection = row;
+                            book_menu = None;
+                        }
+                        _ => {}
+                    }
+                    if book_menu.is_some() {
+                        book_menu = Some(row);
+                    }
+                    self.overlay = Some(Overlay::PimForm {
+                        contact,
+                        collection,
+                        original,
+                        fields,
+                        field,
+                        error,
+                        book_menu,
+                        contact_page,
+                    });
+                    return;
+                }
+                let length = fields.len() + if contact { 3 } else { 1 };
+                let page_start = if contact_page == 0 {
+                    1
+                } else {
+                    5 + (contact_page - 1) * 5
+                };
+                let page_end = if contact_page == 0 { 4 } else { page_start + 4 };
                 match key.code {
                     KeyCode::Esc => {
                         self.overlay = None;
                         return;
                     }
+                    KeyCode::Tab if contact => {
+                        field = if field == 0 {
+                            page_start
+                        } else if field == page_end {
+                            length - 2
+                        } else {
+                            (field + 1) % length
+                        };
+                    }
+                    KeyCode::BackTab if contact => {
+                        field = if field == page_start {
+                            0
+                        } else if field == length - 2 {
+                            page_end
+                        } else {
+                            field.checked_sub(1).unwrap_or(length - 1)
+                        };
+                    }
                     KeyCode::Tab => field = (field + 1) % length,
                     KeyCode::BackTab => field = field.checked_sub(1).unwrap_or(length - 1),
+                    KeyCode::PageUp | KeyCode::PageDown if contact => {
+                        contact_page = if key.code == KeyCode::PageDown {
+                            (contact_page + 1) % 4
+                        } else {
+                            (contact_page + 3) % 4
+                        };
+                        field = if contact_page == 0 {
+                            1
+                        } else {
+                            5 + (contact_page - 1) * 5
+                        };
+                    }
+                    KeyCode::Enter
+                        if contact
+                            && matches!(field, 5 | 10 | 15)
+                            && key.modifiers.contains(KeyModifiers::ALT) =>
+                    {
+                        let input = &mut fields[field - 1];
+                        if input.text.len() < 8192 {
+                            input.text.insert(input.cursor, '\n');
+                            input.cursor += 1;
+                        }
+                    }
+                    KeyCode::Enter if contact && field == 0 => {
+                        if original.is_none() {
+                            book_menu = Some(collection);
+                        } else {
+                            field = page_start;
+                        }
+                    }
+                    KeyCode::Enter if contact && field == length - 1 => {
+                        self.overlay = None;
+                        return;
+                    }
+                    KeyCode::Left | KeyCode::Right if contact && field > fields.len() => {
+                        field = if field == length - 1 {
+                            length - 2
+                        } else {
+                            length - 1
+                        };
+                    }
                     KeyCode::Left | KeyCode::Right if field == 0 && original.is_none() => {
                         let count = if contact {
                             self.contact_books.len()
@@ -2607,7 +2801,15 @@ impl App {
                             (collection + count - 1) % count
                         };
                     }
-                    KeyCode::Enter if field + 1 < length => field += 1,
+                    KeyCode::Enter
+                        if field < fields.len() || (contact && field == fields.len()) =>
+                    {
+                        field = if contact && field == page_end {
+                            length - 2
+                        } else {
+                            field + 1
+                        };
+                    }
                     KeyCode::Enter | KeyCode::Char('s')
                         if key.code == KeyCode::Enter
                             || key.modifiers.contains(KeyModifiers::CONTROL) =>
@@ -2616,11 +2818,14 @@ impl App {
                             error = Some(format!("{reason:#}"));
                         }
                     }
-                    _ if field > 0 => {
+                    _ if field > 0 && field <= fields.len() => {
                         fields[field - 1].key(key);
                         error = None;
                     }
                     _ => {}
+                }
+                if contact && field > 0 && field <= fields.len() {
+                    contact_page = if field <= 4 { 0 } else { 1 + (field - 5) / 5 };
                 }
                 self.overlay = Some(Overlay::PimForm {
                     contact,
@@ -2629,6 +2834,8 @@ impl App {
                     fields,
                     field,
                     error,
+                    book_menu,
+                    contact_page,
                 });
                 return;
             }
@@ -2640,6 +2847,13 @@ impl App {
             {
                 match key.code {
                     KeyCode::Esc => self.overlay = None,
+                    KeyCode::Tab | KeyCode::BackTab | KeyCode::Left | KeyCode::Right => {
+                        self.overlay = Some(Overlay::PimDelete {
+                            contact,
+                            index,
+                            confirm: !confirm,
+                        });
+                    }
                     KeyCode::Char('y' | 'Y') => {
                         self.overlay = Some(Overlay::PimDelete {
                             contact,
@@ -2769,14 +2983,37 @@ impl App {
                         )
                     } else {
                         let c = &self.contacts[index];
+                        let addresses = c
+                            .addresses
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, address)| !address.is_empty())
+                            .map(|(kind, address)| {
+                                format!(
+                                    "\n{} address: {}",
+                                    crate::pim::ADDRESS_LABELS[kind],
+                                    address.display()
+                                )
+                            })
+                            .collect::<String>();
                         format!(
-                            "{}\nAddress book: {}\nEmail: {}\nPhone: {}\nOrganization: {}\n\n{}\n\nEsc close · e edits from the list",
+                            "{}\nSource: {}\nEmail: {}\nPhone: {}\nOrganization: {}{}\n\n{}\n\nEsc close{}",
                             c.name,
                             c.book_label,
                             c.email,
                             c.phone,
                             c.organization,
-                            c.file.display()
+                            addresses,
+                            if c.is_mail() {
+                                "Derived from indexed mail headers · read-only".into()
+                            } else {
+                                c.file.display().to_string()
+                            },
+                            if c.is_mail() {
+                                ""
+                            } else {
+                                " · e edits from the list"
+                            }
                         )
                     };
                     self.help_scroll = 0;
@@ -2820,7 +3057,7 @@ impl App {
                     }
                     self.reload_pim();
                 }
-                2 if !self.contact_books.is_empty() => {
+                2 => {
                     if self.view != View::Contacts {
                         self.navigate(View::Contacts);
                     }
@@ -2833,7 +3070,6 @@ impl App {
                     self.reload_pim();
                 }
                 1 => self.notify("Calendar view is not enabled/configured"),
-                2 => self.notify("Contacts view is not enabled/configured"),
                 3 => self.notify("Tasks view is not enabled/configured"),
                 _ => {}
             },
@@ -2945,6 +3181,10 @@ impl App {
                 }
                 let contact = self.view == View::Contacts;
                 if let Some(index) = self.pim_focused_index() {
+                    if contact && self.contacts[index].is_mail() {
+                        self.notify("Mail contacts are derived from the index and are read-only");
+                        return;
+                    }
                     self.overlay = Some(Overlay::PimDelete {
                         contact,
                         index,
@@ -3567,9 +3807,14 @@ impl App {
                 field,
                 contact,
                 error,
+                book_menu,
                 ..
-            }) if !self.pim_pending && *field > 0 => {
-                if !*contact && *field == 5 {
+            }) if !self.pim_pending
+                && *field > 0
+                && *field <= fields.len()
+                && book_menu.is_none() =>
+            {
+                if (!*contact && *field == 5) || (*contact && matches!(*field, 5 | 10 | 15)) {
                     let clean: String = crate::mime::terminal_text(text)
                         .chars()
                         .filter(|c| !c.is_control() || *c == '\n')
@@ -3881,7 +4126,7 @@ impl App {
                     self.tasks = snapshot.tasks;
                     self.upcoming_events = snapshot.upcoming_events;
                     self.event_occurrences = snapshot.event_occurrences;
-                    if let Some((view, collection, uid)) =
+                    if let Some((view, mut collection, uid)) =
                         write_focus.filter(|(view, _, _)| *view == self.view)
                     {
                         let file = if view == View::Calendar {
@@ -3890,6 +4135,15 @@ impl App {
                                 .iter()
                                 .find(|e| e.collection == collection && e.uid == uid)
                                 .map(|e| e.file.clone())
+                        } else if view == View::Contacts {
+                            let file = self
+                                .contacts
+                                .iter()
+                                .find(|c| c.book == collection && c.uid == uid && !c.is_mail())
+                                .map(|c| c.file.clone());
+                            collection = "carddav-contacts".into();
+                            self.expanded_contact_categories.insert(collection.clone());
+                            file
                         } else {
                             self.expanded_task_lists.insert(collection.clone());
                             self.tasks

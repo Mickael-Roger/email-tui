@@ -175,7 +175,8 @@ async fn resource_views_create_edit_filter_reload_and_delete_in_selected_collect
     key(&mut app, KeyCode::Char('1'));
     assert_eq!(app.view, View::Messages);
     key(&mut app, KeyCode::Char('2'));
-    assert_eq!(app.view, View::Messages);
+    settle(&mut app, &mut events).await;
+    assert_eq!(app.view, View::Contacts);
     assert!(!render(&mut app, 100, 30).contains("<1>"));
     app.configure_pim(
         CalendarConfig {
@@ -185,6 +186,7 @@ async fn resource_views_create_edit_filter_reload_and_delete_in_selected_collect
         ContactsConfig {
             enabled: true,
             books: vec![team.clone(), friends.clone()],
+            ..Default::default()
         },
     );
     settle(&mut app, &mut events).await;
@@ -257,7 +259,7 @@ async fn resource_views_create_edit_filter_reload_and_delete_in_selected_collect
     text(&mut app, "Analytical");
     save(&mut app);
     settle(&mut app, &mut events).await;
-    assert_eq!(app.contacts.len(), 1);
+    assert_eq!(app.contacts.iter().filter(|c| !c.is_mail()).count(), 1);
     assert_eq!(app.contacts[0].book, "friends");
     assert_eq!(fs::read_dir(&team.path).unwrap().count(), 0);
     key(&mut app, KeyCode::Char('e'));
@@ -310,7 +312,7 @@ assert card.validate()
         app.row = app
             .pim_tree_rows()
             .iter()
-            .position(|row| matches!(row, mailtui::app::PimRow::Entry(_)))
+            .position(|row| matches!(row, mailtui::app::PimRow::Entry(index) if view != View::Contacts || !app.contacts[*index].is_mail()))
             .unwrap();
         for (w, h) in [(20, 6), (40, 12), (80, 24), (120, 40)] {
             render(&mut app, w, h);
@@ -320,8 +322,19 @@ assert card.validate()
         }
     }
     let contact_file = app.contacts[0].file.clone();
-    app.row = 0;
+    app.row = app
+        .pim_tree_rows()
+        .iter()
+        .position(|row| matches!(row, mailtui::app::PimRow::Entry(0)))
+        .unwrap();
+    assert_eq!(app.view, View::Contacts);
+    assert_eq!(app.pim_focused_index(), Some(0));
     app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL));
+    assert!(
+        matches!(app.overlay, Some(Overlay::PimDelete { .. })),
+        "{:?}",
+        app.overlay
+    );
     key(&mut app, KeyCode::Enter);
     assert!(contact_file.exists());
     app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL));
@@ -438,7 +451,7 @@ fn optional_configuration_and_date_validation_are_strict() {
         toml::from_str::<Config>("[contacts]\nenabled=true")
             .unwrap()
             .validate()
-            .is_err()
+            .is_ok()
     );
     let config:Config=toml::from_str("[calendar]\nenabled=true\n[[calendar.collections]]\nid='work'\nlabel='Work'\npath='/tmp/calendar'\n[contacts]\nenabled=false").unwrap();
     assert!(config.validate().is_ok());

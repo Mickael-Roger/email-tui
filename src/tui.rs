@@ -11,6 +11,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Row, Table, TableState, Wrap},
 };
 use unicode_width::UnicodeWidthStr;
+mod contact_editor;
 mod task_editor;
 
 struct Palette {
@@ -147,11 +148,27 @@ pub fn draw(frame: &mut Frame, app: &mut App, _preview: bool) {
                 widths.push(Constraint::Length(18));
             }
             let rows = app
-                .pim_rows()
+                .pim_tree_rows()
                 .into_iter()
-                .map(|i| {
+                .map(|row| {
+                    let crate::app::PimRow::Entry(i) = row else {
+                        let crate::app::PimRow::Collection {
+                            index,
+                            count,
+                            expanded,
+                        } = row
+                        else {
+                            unreachable!()
+                        };
+                        return Row::new(vec![format!(
+                            "{} {} ({count})",
+                            if expanded { "▾" } else { "▸" },
+                            app.pim_collections()[index].label
+                        )])
+                        .style(Style::default().fg(p.account).add_modifier(Modifier::BOLD));
+                    };
                     let contact = &app.contacts[i];
-                    let mut cells = vec![text(&contact.name)];
+                    let mut cells = vec![format!("  {}", text(&contact.name))];
                     if area.width >= 45 {
                         cells.push(text(&contact.email));
                     }
@@ -450,13 +467,28 @@ pub fn draw(frame: &mut Frame, app: &mut App, _preview: bool) {
         let (title,body) = match overlay {
             Overlay::Assistant => { assistant(frame, app, area, &p); return; },
             Overlay::TaskForm(editor) => { task_editor::draw(frame, app, area, &p, editor); return; },
+            Overlay::PimForm { contact: true, .. } => { contact_editor::draw(frame, app, area, &p, overlay); return; },
             Overlay::Help => (" Keyboard help · ↑/↓ scroll · Esc close ",help("")),
             Overlay::PimDetails(body) => (" Entry details · ↑/↓ scroll · Esc close ",body.clone()),
             Overlay::Aliases => (" Resource aliases · Esc close ","mail, messages        Single account/folder/mail tree\nfolders, directories  Focus folder in Messages (same view)\ndir <path>            Expand/focus folder in active account\naccounts, acc, ns      Account namespace selector\nns <account|all>       Switch account scope\ninbox                 Expand inbox in current scope\nunified, all          All accounts with inboxes expanded\nsearch <query>        Results grouped in the Messages tree\nmore                  Next page of focused folder\noutbox / status       Pending operations / diagnostics\nhelp / history        Keyboard reference / commands\nquit, q               Exit".into()),
             Overlay::Confirm { ids,confirm } => { delete_dialog(frame,app,area,&p,ids,*confirm); return; }
             Overlay::Find { .. } | Overlay::Move { .. } | Overlay::CreateFolder { .. } | Overlay::Compose { .. } | Overlay::Files { .. } | Overlay::Attachments { .. } | Overlay::SaveAttachments { .. } | Overlay::PimForm { .. } => { form_dialog(frame, app, area, &p, overlay); return; }
             Overlay::Quit => (" Outgoing mail ",format!("{} messages have not finished sending.\n\nEnter: quit · Esc: return",app.pending.len())),
-            Overlay::PimDelete { contact,index,confirm } => (" Confirm deletion ",format!("Delete {}?\n{}\n\n{} · n/Esc cancel",text(if app.view == View::Tasks {app.tasks.get(*index).map(|t| t.summary.as_str()).unwrap_or("task")} else if *contact {app.contacts.get(*index).map(|c|c.name.as_str()).unwrap_or("contact")} else {app.calendar_events.get(*index).map(|e|e.summary.as_str()).unwrap_or("event")}),if !*contact && app.view != View::Tasks && app.calendar_events.get(*index).is_some_and(|e|!e.recurrence.is_empty()){"This deletes the entire recurring series, including exceptions."}else{""},if *confirm{"[Delete selected] Enter confirms"}else{"[Cancel selected] Press y to select Delete"})),
+            Overlay::PimDelete { contact, index, confirm } => {
+                let name = if app.view == View::Tasks {
+                    app.tasks.get(*index).map(|t| t.summary.as_str()).unwrap_or("task")
+                } else if *contact {
+                    app.contacts.get(*index).map(|c| c.name.as_str()).unwrap_or("contact")
+                } else {
+                    app.calendar_events.get(*index).map(|e| e.summary.as_str()).unwrap_or("event")
+                };
+                let mut message = format!("Delete “{}”?", text(name));
+                if !*contact && app.view != View::Tasks && app.calendar_events.get(*index).is_some_and(|e| !e.recurrence.is_empty()) {
+                    message.push_str("\nThis deletes the entire recurring series, including exceptions.");
+                }
+                confirmation_dialog(frame, area, &p, &message, *confirm);
+                return;
+            },
             Overlay::Url(url) => (" Browser viewer · private URL ",format!("{}\n\n{url}\n\nThis bearer URL expires automatically.\nExit revokes all sessions.\nEsc: close",
                 if std::env::var_os("SSH_CONNECTION").is_some() || std::env::var_os("SSH_TTY").is_some() { "SSH detected: this URL belongs to the remote host.\nUse an explicit localhost port forward to access it locally." } else { "Open this URL in your browser:" })),
         };
@@ -504,9 +536,7 @@ fn header(frame: &mut Frame, app: &App, area: Rect, p: &Palette, compact: bool) 
     if !app.calendar_collections.is_empty() {
         views.push((1, "Calendar", app.view == View::Calendar));
     }
-    if !app.contact_books.is_empty() {
-        views.push((2, "Contacts", app.view == View::Contacts));
-    }
+    views.push((2, "Contacts", app.view == View::Contacts));
     if !app.task_collections.is_empty() {
         views.push((3, "Tasks", app.view == View::Tasks));
     }
@@ -532,7 +562,7 @@ fn header(frame: &mut Frame, app: &App, area: Rect, p: &Palette, compact: bool) 
                 )
             } else if app.view.is_pim() {
                 if app.view == View::Contacts {
-                    "<c> Create · <e> Edit\n<enter> Details\n<Ctrl+D> Delete"
+                    "<c/e> Create/edit CardDAV\n<enter> Expand / details\n<Ctrl+R> Synchronize"
                 } else {
                     "<c/e> Create/edit\n<Ctrl+D> Delete\n<Ctrl+R> Synchronize"
                 }
@@ -575,6 +605,7 @@ fn header(frame: &mut Frame, app: &App, area: Rect, p: &Palette, compact: bool) 
             ("<c>", "New contact"),
             ("<e>", "Edit contact"),
             ("<ctrl-d>", "Delete contact"),
+            ("<ctrl-r>", "Synchronize CardDAV"),
             ("<0>", "Mail"),
         ],
         View::Accounts => vec![
@@ -1711,6 +1742,52 @@ fn paragraph(frame: &mut Frame, app: &App, area: Rect, p: &Palette, body: String
         area,
     );
 }
+fn confirmation_dialog(frame: &mut Frame, area: Rect, p: &Palette, message: &str, confirm: bool) {
+    let width = area.width.min(60);
+    let message_width = width.saturating_sub(6).max(1) as usize;
+    let message_height: usize = message
+        .lines()
+        .map(|line| UnicodeWidthStr::width(line).div_ceil(message_width).max(1))
+        .sum();
+    let height = area
+        .height
+        .min((message_height + 7).min(u16::MAX as usize) as u16);
+    let popup = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    frame.render_widget(Clear, popup);
+    let border = block(" Confirm deletion ", p).style(p.base);
+    let inner = border.inner(popup);
+    frame.render_widget(border, popup);
+    let rows = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Min(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .horizontal_margin(2)
+    .split(inner);
+    frame.render_widget(
+        Paragraph::new(message)
+            .style(p.base)
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: true }),
+        rows[1],
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("  OK  ", if confirm { p.selected } else { p.base }),
+            Span::raw("    "),
+            Span::styled("  Cancel  ", if confirm { p.base } else { p.selected }),
+        ]))
+        .alignment(Alignment::Center),
+        rows[3],
+    );
+}
 fn delete_dialog(
     frame: &mut Frame,
     app: &App,
@@ -1803,6 +1880,6 @@ pub fn help(filter: &str) -> String {
         s.push_str(&format!("{:<14} {}\n", b.key, b.description));
     }
     s.push_str("\nLocal search\n/ opens the local search picker. Type words or fuzzy metadata.\nSearch sender, recipients, subject and downloaded body.\nUse arrows to choose a result, Enter to read it, Esc to return.\n\nNavigation\nArrows move; Enter folds/unfolds a branch or reads a message.\nh/H opens HTML without/with remote images; the page button toggles both.\nSpace marks a message; a selects visible messages. Ctrl+D confirms Trash.\nm moves mail, c composes, n creates a directory.\nThe composer and file picker show their own editing controls.\nCtrl+C twice within three seconds quits.\n\nCommands\n:ns / :accounts — selector; :ns <id|all> switches directly\n:dir <path> — open/focus a directory; :inbox / :unified — open inboxes\n:search <query> — local results in the tree; Esc returns\n:compose, :mkdir, :more, :reload, :outbox, :status, :help, :quit\n:unread, :flagged, :sort <field> [asc|desc], :theme <name>\n\nAutomatic updates\nMail, folder counts and search results update automatically.\nForms defer list updates until closed.\nPending shows outgoing mail until sending is confirmed; :outbox shows details.\n");
-    s.push_str("\nCalendars, contacts and tasks\n1 / :calendar opens calendars; 2 / :contacts opens contacts; 3 / :tasks opens tasks.\nc creates, e edits, Ctrl+D deletes, / filters, Ctrl+S saves a form.\n:sync in Calendar or Tasks runs the configured sync_command.\nSuccessful calendar/task writes also request synchronization when configured.\n");
+    s.push_str("\nCalendars, contacts and tasks\n1 / :calendar opens calendars; 2 / :contacts opens contacts; 3 / :tasks opens tasks.\nContacts groups read-only SQLite mail correspondents and editable CardDAV books.\nEnter expands/collapses a category or opens details.\nc creates, e edits, Ctrl+D deletes, / filters, Ctrl+S saves a form.\n:sync / Ctrl+R in Calendar, Contacts or Tasks runs the configured sync_command.\nSuccessful calendar/contact/task writes also request synchronization when configured.\n");
     s
 }

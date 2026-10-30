@@ -4,7 +4,8 @@
 
 `0` revient à la vue mail complète. `1` ouvre les calendriers, `2` les contacts,
 `3` les tâches. Les raccourcis `:calendar`, `:contacts` et `:tasks` sont également disponibles. Une vue
-facultative est masquée tant que sa section n'est pas activée et configurée.
+Calendrier ou Tâches est masquée tant que sa section n'est pas activée et configurée.
+Contacts est toujours accessible : les contacts des mails proviennent de l'index SQLite.
 Les comptes mail individuels restent accessibles via `:ns` / `:ns work`.
 
 Exemple à ajouter au **config.toml de MailTUI** :
@@ -40,7 +41,94 @@ path = "/home/alice/.local/share/contacts/team"
 Chaque chemin absolu désigne **une collection vdir**, pas le répertoire parent
 de toutes les collections. Les IDs doivent être uniques dans leur section.
 Il n'y a pas d'expansion `~`. Les sections omises sont désactivées par défaut.
-Une section activée sans collection est une erreur de configuration.
+Une section Calendrier/Tâches activée sans collection est une erreur de configuration.
+La section Contacts peut rester sans carnet : les correspondants des mails restent disponibles.
+
+### Contacts Mail et CardDAV
+
+La vue `2` / `:contacts` contient deux branches, repliées par défaut :
+
+- **Mail · indexed correspondents** : expéditeurs et destinataires des en-têtes
+  présents dans l'index SQLite de MailTUI, tous comptes confondus. Les adresses sont
+  dédupliquées sans distinction de casse, avec le nom disponible le plus récent.
+  Le corps des messages n'est pas utilisé pour extraire des adresses. Ces fiches
+  sont en lecture seule ; elles suivent l'ajout et la suppression de mails dans l'index.
+- **CardDAV · address books** : fiches vCard des carnets locaux configurés.
+  Elles restent indépendantes des correspondants Mail, même pour une adresse identique.
+  `c`, `e`, Ctrl+D et Ctrl+S permettent de gérer ces fiches.
+
+Entrée replie/déplie une catégorie ou ouvre une fiche. `/` filtre les noms,
+adresses, téléphones, organisations, carnets et sources (`Mail` / `CardDAV`).
+
+L'ajout et l'édition CardDAV utilisent un popup à champs encadrés, comme les tâches :
+**Name**, **Email**, **Phone**, **Organization**, et boutons **Save / Cancel**.
+**PgUp / PgDn** change de section : **General**, **Personal**, **Work**, **Other**.
+Chaque section d'adresse comporte **Street / address lines**, **City**,
+**Region / State**, **Postal code**, **Country**. La rue accepte plusieurs lignes
+par collage ou **Alt+Entrée**. Tab parcourt les champs et boutons de la section courante.
+**Tab / Shift+Tab** change le champ actif ; **Entrée** avance ou active le bouton
+sélectionné ; **Ctrl+S** enregistre directement et **Échap** annule.
+À la création, Entrée sur **Address book** ouvre le menu des carnets, à sélectionner
+avec ↑/↓ puis Entrée ; ←/→ permet aussi de changer de carnet. Le carnet est fixe
+pendant l'édition d'une fiche existante. Le champ actif reste visible sur les petits terminaux.
+
+Les adresses sont stockées sous forme de propriétés vCard structurées `ADR`, avec
+`TYPE=HOME`, `TYPE=WORK` et `TYPE=OTHER`, correspondant aux adresses personnelle,
+professionnelle et autre de Zimbra. Les adresses sans type sont lues comme « Other ».
+Le formulaire modifie la première adresse de chaque type ; les adresses secondaires,
+boîtes postales, compléments structurés et paramètres importés sont conservés.
+Une adresse importée non modifiée conserve sa propriété d'origine. Les détails
+affichent les adresses renseignées et `/` filtre aussi leurs composantes.
+Les modifications d'adresse suivent la même sauvegarde locale et synchronisation
+CardDAV automatique que les autres champs.
+
+Pour découvrir les carnets sous un répertoire parent au démarrage :
+
+```toml
+[contacts]
+enabled = true
+path = "/home/alice/.local/share/contacts"
+sync_command = ["vdirsyncer", "sync", "my_contacts"]
+sync_timeout_seconds = 120
+```
+
+Chaque sous-répertoire direct non caché devient un carnet. Les déclarations
+`[[contacts.books]]` restent utilisables pour choisir les IDs et libellés de carnets
+précis ; elles ont priorité sur la découverte pour un même chemin.
+
+La synchronisation des contacts utilise **CardDAV** (CalDAV est destiné aux
+calendriers et tâches). Exemple dans `~/.config/vdirsyncer/config`, à adapter :
+
+```ini
+[general]
+status_path = "~/.local/state/vdirsyncer/status/"
+
+[pair my_contacts]
+a = "contacts_local"
+b = "contacts_remote"
+collections = ["from a", "from b"]
+
+[storage contacts_local]
+type = "filesystem"
+path = "~/.local/share/contacts/"
+fileext = ".vcf"
+
+[storage contacts_remote]
+type = "carddav"
+url = "https://dav.example.com/addressbooks/"
+username = "alice"
+password = "YOUR_APP_PASSWORD"
+```
+
+Initialiser avec `vdirsyncer discover my_contacts`, puis `vdirsyncer sync my_contacts`
+avant de démarrer MailTUI pour que les carnets soient découverts.
+Dans Contacts, **`:sync` ou Ctrl+R** exécute ensuite `contacts.sync_command`.
+Une création, modification ou suppression réussie déclenche aussi cette commande.
+La commande s'exécute en arrière-plan, sans shell ; les demandes simultanées
+sont regroupées par ressource, indépendamment des synchronisations Calendar et Tasks.
+Après la commande, les fichiers sont rechargés pour afficher les contacts téléchargés.
+Un échec ou dépassement du délai est signalé, en conservant les modifications locales.
+Sans commande configurée, les carnets restent utilisables localement.
 
 ### Découvrir tous les calendriers d'un répertoire
 
@@ -108,14 +196,14 @@ sync_command = ["vdirsyncer", "sync", "my_tasks"]
 sync_timeout_seconds = 120
 ```
 
-- **`Ctrl+R`** ou **`:sync`** lance la commande de la vue courante (Calendrier ou Tâches).
+- **`Ctrl+R`** ou **`:sync`** lance la commande de la vue courante (Calendrier, Contacts ou Tâches).
   Le raccourci `Ctrl+R` est affiché dans le bandeau supérieur, y compris en mode compact.
 - Une création, modification ou suppression réussie déclenche aussi la commande
   de la ressource modifiée, même si l'on a changé de vue entre-temps. Les
   modifications de calendrier appliquées depuis l'assistant suivent le même chemin.
 - L'exécution est en arrière-plan, sans bloquer la navigation. Plusieurs demandes
   pour une même ressource pendant une synchronisation sont regroupées en une
-  exécution supplémentaire. Calendriers et tâches ont chacun leur propre commande.
+  exécution supplémentaire. Calendriers, contacts et tâches ont chacun leur propre commande.
 - Le programme et ses arguments sont une liste de chaînes, **sans shell**, sans
   argument ajouté implicitement. La commande doit fonctionner sans saisie interactive.
   Sa sortie n'est pas affichée dans le terminal ; le succès ou l'échec est signalé

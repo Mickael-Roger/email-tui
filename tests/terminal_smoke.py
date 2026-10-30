@@ -191,17 +191,17 @@ def main():
             send(b"e", b"Edit event")
             send(b"\x01Updated \x13", "Calendar · 1 entries".encode())
             assert "SUMMARY:Updated Synced meeting" in event_file.read_text()
-            send(b"2", "Contacts · 0 people".encode())
-            send(b"c", b"New contact")
+            send(b"2", b"CardDAV")
+            send(b"c", b"New CardDAV contact")
             send(
                 b"\tPTY contact\tperson@example.test\t+33123\tTeam\x13",
-                "Contacts · 1 people".encode(),
+                b"PTY contact",
             )
             contact_files = list(Path(directory, "contacts").glob("*.vcf"))
             assert len(contact_files) == 1
             assert "EMAIL:person@example.test" in contact_files[0].read_text()
             send(b"\x04", b"Confirm deletion")
-            send(b"y\r", "Contacts · 0 people".encode())
+            send(b"y\r", b"PIM entry saved/deleted locally")
             assert not contact_files[0].exists()
             send(b"1", b"Updated Synced meeting")
             send(b"\x1b[B\x04", b"Confirm deletion")  # Calendar heading -> event.

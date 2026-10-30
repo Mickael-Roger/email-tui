@@ -305,7 +305,7 @@ pub fn bindings() -> Vec<Binding> {
             M::NONE,
             "2",
             Action::ViewSlot(2),
-            "Contacts view when configured",
+            "Contacts view · indexed mail and CardDAV address books",
         ),
         (
             Char('3'),

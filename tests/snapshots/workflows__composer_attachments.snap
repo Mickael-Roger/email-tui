@@ -3,7 +3,7 @@ source: tests/workflows.rs
 expression: "capture(&mut app, 100, 28)"
 ---
 <?>        Help                     <m>        Move mail                <0> Mail
-<t>        Read / unread            <c>        Compose mail
+<t>        Read / unread            <c>        Compose mail             <2> Contacts
 <ctrl┌──────────────────────────────────── Compose email ─────────────────────────────────────┐
 <ente│From: work <you@company.example> (↑/↓ changes account)                                  │
 <h/H>│To:      alice@example.com                                                              │

@@ -45,11 +45,39 @@ pub struct CalendarConfig {
     pub enabled: bool,
     pub collections: Vec<PimCollection>,
 }
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ContactsConfig {
     pub enabled: bool,
     pub books: Vec<PimCollection>,
+    pub path: PathBuf,
+    pub sync_command: Vec<String>,
+    pub sync_timeout_seconds: u64,
+}
+impl Default for ContactsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            books: vec![],
+            path: PathBuf::new(),
+            sync_command: vec![],
+            sync_timeout_seconds: 120,
+        }
+    }
+}
+impl ContactsConfig {
+    pub fn sync_config(&self) -> CalendarsConfig {
+        CalendarsConfig {
+            enabled: self.enabled,
+            sync_command: if self.enabled {
+                self.sync_command.clone()
+            } else {
+                vec![]
+            },
+            sync_timeout_seconds: self.sync_timeout_seconds,
+            ..Default::default()
+        }
+    }
 }
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -150,6 +178,11 @@ impl Config {
         )
         .with_context(|| format!("Invalid configuration {}", path.display()))?;
         config.discover_calendars()?;
+        if config.contacts.enabled && !config.contacts.path.as_os_str().is_empty() {
+            let discovered =
+                discover_collections(&config.contacts.path, &config.contacts.books, "contacts")?;
+            config.contacts.books.extend(discovered);
+        }
         if config.tasks.enabled {
             config.tasks.collections = discover_collections(&config.tasks.path, &[], "tasks")?;
         }
@@ -170,6 +203,18 @@ impl Config {
         Ok(())
     }
     pub fn validate(&self) -> Result<()> {
+        if (!self.contacts.path.as_os_str().is_empty() && !self.contacts.path.is_absolute())
+            || self.contacts.sync_timeout_seconds == 0
+            || self
+                .contacts
+                .sync_command
+                .first()
+                .is_some_and(|s| s.trim().is_empty())
+        {
+            bail!(
+                "contacts: path must be absolute, sync_command needs an executable and sync_timeout_seconds must be positive"
+            );
+        }
         for (kind, config) in [("calendars", &self.calendars), ("tasks", &self.tasks)] {
             if config.enabled && !config.path.is_absolute() {
                 bail!("{kind}.path must be absolute");
@@ -256,7 +301,7 @@ impl Config {
                     bail!("{kind} {}: path must be absolute", collection.id);
                 }
             }
-            if enabled && collections.is_empty() {
+            if enabled && collections.is_empty() && kind != "contacts" {
                 bail!("{kind}.enabled requires at least one configured collection");
             }
         }

@@ -49,8 +49,72 @@ pub struct Contact {
     pub email: String,
     pub phone: String,
     pub organization: String,
+    /// Primary HOME, WORK and other ADR, in that order. Additional ADRs stay in source.
+    pub addresses: [PostalAddress; 3],
     pub file: PathBuf,
     pub source: String,
+}
+pub const ADDRESS_LABELS: [&str; 3] = ["Personal", "Work", "Other"];
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PostalAddress {
+    pub po_box: String,
+    pub extended: String,
+    pub street: String,
+    pub city: String,
+    pub region: String,
+    pub postal_code: String,
+    pub country: String,
+}
+impl PostalAddress {
+    fn components(&self) -> [&str; 7] {
+        [
+            &self.po_box,
+            &self.extended,
+            &self.street,
+            &self.city,
+            &self.region,
+            &self.postal_code,
+            &self.country,
+        ]
+    }
+    pub fn is_empty(&self) -> bool {
+        self.components().iter().all(|s| s.is_empty())
+    }
+    pub fn display(&self) -> String {
+        self.components()
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(" · ")
+    }
+}
+impl Contact {
+    pub fn is_mail(&self) -> bool {
+        self.file.as_os_str().is_empty()
+    }
+    pub fn category(&self) -> &'static str {
+        if self.is_mail() {
+            "mail-contacts"
+        } else {
+            "carddav-contacts"
+        }
+    }
+}
+pub fn contact_categories() -> &'static [PimCollection] {
+    static CATEGORIES: std::sync::LazyLock<Vec<PimCollection>> = std::sync::LazyLock::new(|| {
+        [
+            ("mail-contacts", "Mail · indexed correspondents"),
+            ("carddav-contacts", "CardDAV · address books"),
+        ]
+        .into_iter()
+        .map(|(id, label)| PimCollection {
+            id: id.into(),
+            label: label.into(),
+            path: PathBuf::new(),
+        })
+        .collect()
+    });
+    &CATEGORIES
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Task {
@@ -84,7 +148,7 @@ pub enum Change {
     },
     Contact {
         book: PimCollection,
-        entry: Contact,
+        entry: Box<Contact>,
     },
     Task {
         collection: PimCollection,
@@ -361,6 +425,7 @@ pub fn load_with_tasks(
                             email: get(&logical, bounds, "EMAIL"),
                             phone: get(&logical, bounds, "TEL"),
                             organization: get(&logical, bounds, "ORG"),
+                            addresses: read_addresses(&logical, bounds),
                             file,
                             source,
                         });
@@ -1044,6 +1109,73 @@ fn event_document(event: &Event) -> Result<String> {
     set(&mut logical, "VEVENT", "SEQUENCE", &sequence, false)?;
     Ok(serialize(&logical))
 }
+fn address_kind(key: &str) -> usize {
+    let mut quoted = false;
+    let types: Vec<_> = key
+        .split(|c| {
+            if c == '"' {
+                quoted = !quoted;
+            }
+            c == ';' && !quoted
+        })
+        .skip(1)
+        .flat_map(|param| {
+            let value = match param.split_once('=') {
+                Some((name, value)) if name.eq_ignore_ascii_case("TYPE") => value,
+                Some(_) => "",
+                None => param, // vCard 2.1-style bare HOME/WORK parameters.
+            };
+            value
+                .trim_matches('"')
+                .split(',')
+                .map(|s| s.trim().to_ascii_uppercase())
+        })
+        .collect();
+    if types.iter().any(|t| t == "HOME") {
+        0
+    } else if types.iter().any(|t| t == "WORK") {
+        1
+    } else {
+        2
+    }
+}
+fn address_line(logical: &[String], bounds: (usize, usize), kind: usize) -> Option<usize> {
+    (bounds.0 + 1..bounds.1).find(|index| {
+        property(&logical[*index]).is_some_and(|(name, key, _)| {
+            name.eq_ignore_ascii_case("ADR") && address_kind(key) == kind
+        })
+    })
+}
+fn parse_address(value: &str) -> PostalAddress {
+    // Split before unescaping: a literal \; belongs to a component.
+    let mut components = vec![String::new()];
+    let mut escaped = false;
+    for c in value.chars() {
+        if c == ';' && !escaped {
+            components.push(String::new());
+        } else {
+            components.last_mut().unwrap().push(c);
+        }
+        escaped = c == '\\' && !escaped;
+    }
+    let mut parts = components.into_iter().map(|s| unescape(&s));
+    PostalAddress {
+        po_box: parts.next().unwrap_or_default(),
+        extended: parts.next().unwrap_or_default(),
+        street: parts.next().unwrap_or_default(),
+        city: parts.next().unwrap_or_default(),
+        region: parts.next().unwrap_or_default(),
+        postal_code: parts.next().unwrap_or_default(),
+        country: parts.next().unwrap_or_default(),
+    }
+}
+fn read_addresses(logical: &[String], bounds: (usize, usize)) -> [PostalAddress; 3] {
+    std::array::from_fn(|kind| {
+        address_line(logical, bounds, kind)
+            .map(|index| parse_address(property(&logical[index]).unwrap().2))
+            .unwrap_or_default()
+    })
+}
 fn contact_document(contact: &Contact) -> Result<String> {
     ensure!(!contact.name.trim().is_empty(), "Contact name is required");
     let mut logical = if contact.source.is_empty() {
@@ -1079,6 +1211,30 @@ fn contact_document(contact: &Contact) -> Result<String> {
         ("ORG", &contact.organization),
     ] {
         set(&mut logical, "VCARD", name, value, false)?;
+    }
+    for (kind, address) in contact.addresses.iter().enumerate() {
+        let bounds = range(&logical, "VCARD")?;
+        let existing = address_line(&logical, bounds, kind);
+        let old = existing
+            .map(|index| parse_address(property(&logical[index]).unwrap().2))
+            .unwrap_or_default();
+        if *address == old {
+            continue;
+        }
+        let value = address.components().map(escape).join(";");
+        if let Some(index) = existing {
+            if address.is_empty() {
+                logical.remove(index);
+            } else {
+                let key = property(&logical[index]).unwrap().1;
+                logical[index] = format!("{key}:{value}");
+            }
+        } else if !address.is_empty() {
+            logical.insert(
+                bounds.1,
+                format!("ADR;TYPE={}:{value}", ["HOME", "WORK", "OTHER"][kind]),
+            );
+        }
     }
     set(&mut logical, "VCARD", "REV", &utc_now(), true)?;
     Ok(serialize(&logical))

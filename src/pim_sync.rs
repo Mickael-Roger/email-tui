@@ -11,12 +11,14 @@ use tokio::{sync::mpsc, task::JoinHandle};
 pub enum Target {
     Calendars,
     Tasks,
+    Contacts,
 }
 impl Target {
     pub fn name(self) -> &'static str {
         match self {
             Self::Calendars => "calendars",
             Self::Tasks => "tasks",
+            Self::Contacts => "contacts",
         }
     }
 }
@@ -37,7 +39,12 @@ impl Synchronizer {
         events: mpsc::Sender<Completed>,
     ) -> Self {
         Self {
-            configs: [(Target::Calendars, calendars), (Target::Tasks, tasks)].into(),
+            configs: [
+                (Target::Calendars, calendars),
+                (Target::Tasks, tasks),
+                (Target::Contacts, CalendarsConfig::default()),
+            ]
+            .into(),
             jobs: HashMap::new(),
             again: HashSet::new(),
             events,
@@ -60,6 +67,11 @@ impl Synchronizer {
                 let _ = events.send(Completed { target, error }).await;
             }),
         );
+    }
+    pub fn with_contacts(mut self, contacts: &crate::config::ContactsConfig) -> Self {
+        self.configs
+            .insert(Target::Contacts, contacts.sync_config());
+        self
     }
     pub fn completed(&mut self, target: Target) {
         self.jobs.remove(&target);
@@ -118,12 +130,21 @@ mod tests {
         }
         };
         let (tx, mut rx) = mpsc::channel(8);
-        let mut sync = Synchronizer::new(config("calendar"), config("tasks"), tx);
+        let mut sync = Synchronizer::new(config("calendar"), config("tasks"), tx).with_contacts(
+            &crate::config::ContactsConfig {
+                enabled: true,
+                sync_command: config("contacts").sync_command,
+                ..Default::default()
+            },
+        );
         sync.request(Target::Calendars);
         sync.request(Target::Calendars);
         sync.request(Target::Calendars);
         sync.request(Target::Tasks);
-        for _ in 0..3 {
+        sync.request(Target::Contacts);
+        sync.request(Target::Contacts);
+        sync.request(Target::Contacts);
+        for _ in 0..5 {
             let completed = tokio::time::timeout(Duration::from_secs(5), rx.recv())
                 .await
                 .unwrap()
@@ -139,6 +160,7 @@ mod tests {
             .collect();
         assert_eq!(records.iter().filter(|r| r[0] == "calendar").count(), 2);
         assert_eq!(records.iter().filter(|r| r[0] == "tasks").count(), 1);
+        assert_eq!(records.iter().filter(|r| r[0] == "contacts").count(), 2);
         assert!(
             records
                 .iter()

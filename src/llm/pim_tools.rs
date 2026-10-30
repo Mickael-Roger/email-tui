@@ -295,6 +295,7 @@ impl PimTools {
                     email: String::new(),
                     phone: String::new(),
                     organization: String::new(),
+                    addresses: Default::default(),
                     file: Default::default(),
                     source: String::new(),
                 }
@@ -335,7 +336,10 @@ impl PimTools {
                     .find(|b| b.id == entry.book)
                     .context("Address book unavailable")?
                     .clone();
-                Change::Contact { book, entry }
+                Change::Contact {
+                    book,
+                    entry: Box::new(entry),
+                }
             }
         };
         pim::validate_change(&change)?;
