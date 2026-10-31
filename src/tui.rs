@@ -568,7 +568,7 @@ fn header(frame: &mut Frame, app: &App, area: Rect, p: &Palette, compact: bool) 
                 }
                 .into()
             } else {
-                "<t> Read/unread\n<m> Move mail\n<c> Compose mail".into()
+                "<t> Read/unread\n<m> Move mail\n<Ctrl+R> Sync mail".into()
             })
             .style(key_style),
             columns[1],
@@ -657,7 +657,7 @@ fn header(frame: &mut Frame, app: &App, area: Rect, p: &Palette, compact: bool) 
             ("<n>", "New directory"),
             ("<space>", "Mark mail"),
             ("<ctrl-c>", "Twice to quit"),
-            ("<esc>", "Back"),
+            ("<ctrl-r>", "Sync mail"),
         ]
     };
     for (column, hints) in [hints, extra.to_vec()].into_iter().enumerate() {
@@ -1880,6 +1880,6 @@ pub fn help(filter: &str) -> String {
         s.push_str(&format!("{:<14} {}\n", b.key, b.description));
     }
     s.push_str("\nLocal search\n/ opens the local search picker. Type words or fuzzy metadata.\nSearch sender, recipients, subject and downloaded body.\nUse arrows to choose a result, Enter to read it, Esc to return.\n\nNavigation\nArrows move; Enter folds/unfolds a branch or reads a message.\nh/H opens HTML without/with remote images; the page button toggles both.\nSpace marks a message; a selects visible messages. Ctrl+D confirms Trash.\nm moves mail, c composes, n creates a directory.\nThe composer and file picker show their own editing controls.\nCtrl+C twice within three seconds quits.\n\nCommands\n:ns / :accounts — selector; :ns <id|all> switches directly\n:dir <path> — open/focus a directory; :inbox / :unified — open inboxes\n:search <query> — local results in the tree; Esc returns\n:compose, :mkdir, :more, :reload, :outbox, :status, :help, :quit\n:unread, :flagged, :sort <field> [asc|desc], :theme <name>\n\nAutomatic updates\nMail, folder counts and search results update automatically.\nForms defer list updates until closed.\nPending shows outgoing mail until sending is confirmed; :outbox shows details.\n");
-    s.push_str("\nCalendars, contacts and tasks\n1 / :calendar opens calendars; 2 / :contacts opens contacts; 3 / :tasks opens tasks.\nContacts groups read-only SQLite mail correspondents and editable CardDAV books.\nEnter expands/collapses a category or opens details.\nc creates, e edits, Ctrl+D deletes, / filters, Ctrl+S saves a form.\n:sync / Ctrl+R in Calendar, Contacts or Tasks runs the configured sync_command.\nSuccessful calendar/contact/task writes also request synchronization when configured.\n");
+    s.push_str("\nSynchronization\n:sync / Ctrl+R in Mail synchronizes the current account, or all accounts in all scope, using Neverest.\n\nCalendars, contacts and tasks\n1 / :calendar opens calendars; 2 / :contacts opens contacts; 3 / :tasks opens tasks.\nContacts groups read-only SQLite mail correspondents and editable CardDAV books.\nEnter expands/collapses a category or opens details.\nc creates, e edits, Ctrl+D deletes, / filters, Ctrl+S saves a form.\n:sync / Ctrl+R in Calendar, Contacts or Tasks runs the configured sync_command.\nSuccessful calendar/contact/task writes also request synchronization when configured.\n");
     s
 }

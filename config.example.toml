@@ -13,7 +13,8 @@ browser_command = ["xdg-open", "{url}"]
 # Viewer bind is intentionally not configurable: 127.0.0.1 + ephemeral port.
 # h blocks remote images; H enables them. The page button can toggle either mode.
 
-# Used only after sending a message. Incoming mail is handled by Carillon.
+# Neverest handles explicit sends and manual mail sync (Ctrl+R / :sync).
+# Automatic incoming mail is handled by Carillon.
 [delivery]
 command = ["neverest"]
 timeout_seconds = 240

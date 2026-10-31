@@ -90,7 +90,8 @@ read feasibility gate. Exact application test results are in development.md.
 
 Carillon and Neverest are external services: MailTUI watches public pimdir
 change/purge cursors and updates its lists and index from committed local data.
-Only explicit sends launch `neverest sync -a ACCOUNT --intents-only`, targeting
+Explicit sends launch `neverest sync -a ACCOUNT --intents-only`; manual Mail sync
+also launches a full `neverest sync -a ACCOUNT`, targeting
 the captured sender account (with optional Neverest-name mapping). The public-store
 probe verifies producer flag/move actions, owner drain, Draft MIME and pinned
 submit/collection-create payloads. An opt-in integration test drives an external

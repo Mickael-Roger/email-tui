@@ -15,6 +15,37 @@ use std::{
 };
 
 type Events = tokio::sync::mpsc::Receiver<Event>;
+#[tokio::test]
+async fn manual_mail_sync_respects_scope_refreshes_and_stays_disabled_in_demo() {
+    let current = Arc::new(AtomicU64::new(0));
+    let (tx, mut events, worker) = start_worker(Box::new(DemoStore::new()), current.clone());
+    let mut app = App::new(false, "no-color".into(), current, tx);
+    app.reload(false);
+    settle(&mut app, &mut events).await;
+    ctrl(&mut app, 'r');
+    assert_eq!(
+        app.mail_sync_requests,
+        HashSet::from(["personal".into(), "work".into()])
+    );
+    app.mail_sync_requests.clear();
+    app.scope.account = Some("work".into());
+    app.view = View::Detail;
+    app.execute("sync");
+    assert_eq!(app.mail_sync_requests, HashSet::from(["work".into()]));
+    app.mail_sync_requests.clear();
+    app.mail_sync_completed("work".into(), Some("offline".into()));
+    assert!(app.toast.contains("offline"));
+    assert!(app.index_dirty);
+    app.mail_sync_completed("work".into(), None);
+    assert!(app.toast.contains("completed"));
+    app.demo = true;
+    ctrl(&mut app, 'r');
+    assert!(app.mail_sync_requests.is_empty());
+    assert!(app.toast.contains("demo"));
+    drop(app);
+    drop(events);
+    worker.await.unwrap();
+}
 async fn settle(app: &mut App, events: &mut Events) {
     while app.busy {
         app.event(

@@ -7,7 +7,7 @@ expression: "capture(&mut app, 80, 24)"
 <ctrl-d>   Delete mail       <n>        New directory
 <enter>    Unfold / read     <space>    Mark mail
 <h/H>      HTML / remote     <ctrl-c>   Twice to quit
-</>        Local search      <esc>      Back
+</>        Local search      <ctrl-r>   Sync mail
 
 ┌─── Messages(all)[44 mail / 14 folders] /from:alice@example.com kubernetes ───┐
 │NAME / SUBJECT                            FROM                DATE↓           │

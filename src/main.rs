@@ -206,7 +206,8 @@ async fn main() -> Result<()> {
                 },
                 result = send_rx.recv() => if let Some(result) = result {
                     sender.completed(&result.account);
-                    app.delivery_completed(result.account, result.error);
+                    if result.full_sync { app.mail_sync_completed(result.account, result.error); }
+                    else { app.delivery_completed(result.account, result.error); }
                 },
                 event = events.recv() => if let Some(event) = event { app.event(event); } else { anyhow::bail!("Background worker stopped"); },
                 event = input.next() => match event {
@@ -238,6 +239,7 @@ async fn main() -> Result<()> {
             app.refresh_if_idle();
             app.refresh_pim_if_idle();
             for target in app.sync_requests.drain() { synchronizer.request(target); }
+            for account in app.mail_sync_requests.drain() { sender.request_sync(&account); }
             for command in app.ai.commands.drain(..) { if let Some(assistant) = &mut assistant { assistant.request(command); } }
             for account in app.send_requests.drain() { if !args.demo { sender.request(&account); } }
             if app.index_dirty {

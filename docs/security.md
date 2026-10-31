@@ -9,9 +9,10 @@ MIME is durably staged and pinned before its submit action is committed.
 Neverest owns applying the queue, network connectors and reconciliation.
 Mail-server credentials stay in Neverest's configuration. Carillon handles incoming data;
 MailTUI observes public pimdir change cursors every two seconds. Explicit sends
-start Neverest with `sync -a ACCOUNT --intents-only`, using an argument array,
-null stdio, a timeout and cancellation on exit. Other writes wait for the
-external consumer. The browser command opens the local HTML viewer.
+start Neverest with `sync -a ACCOUNT --intents-only`; manual mail synchronization
+starts a full `sync -a ACCOUNT`. Both use an argument array, null stdio, a timeout,
+and cancellation on exit. Other writes wait for the external consumer or a manual
+sync. The browser command opens the local HTML viewer.
 
 Search uses MailTUI's separate **persistent SQLite FTS5 database** under
 `$XDG_DATA_HOME/mailtui/` (default `~/.local/share/mailtui/`). It stores decoded

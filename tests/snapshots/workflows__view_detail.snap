@@ -7,7 +7,7 @@ expression: "capture(&mut app, 80, 24)"
 <ctrl-d>   Delete            <n>        New directory
 <h/H>      HTML / remote     <space>    Mark mail
 <ctrl-s>   Save attachments  <ctrl-c>   Twice to quit
-<pgdn/up>  Page              <esc>      Back
+<pgdn/up>  Page              <ctrl-r>   Sync mail
 <esc>      Back
 ┌────────────────────────────────── Message ───────────────────────────────────┐
 │Release planning — Kubernetes 1.35                                            │

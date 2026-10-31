@@ -7,7 +7,7 @@ expression: "capture(&mut app, w, h)"
 <ctrl-d>   Delete mail                                          <n>        New directory                                                                          | |\/| |/ _` | | |
 <enter>    Unfold / read                                        <space>    Mark mail                                                                              | |  | | (_| | | |
 <h/H>      HTML / remote                                        <ctrl-c>   Twice to quit                                                                          |_|  |_|\__,_|_|_|
-</>        Local search                                         <esc>      Back                                                                                          T U I
+</>        Local search                                         <ctrl-r>   Sync mail                                                                                     T U I
 
 ┌────────────────────────────────────────────────────────────────────── Messages(all)[110 mail / 14 folders] ──────────────────────────────────────────────────────────────────────┐
 │NAME / SUBJECT                                                                                             FROM                                         DATE↓            NEW/TOTAL│

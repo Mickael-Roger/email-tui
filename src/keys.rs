@@ -319,7 +319,7 @@ pub fn bindings() -> Vec<Binding> {
             M::CONTROL,
             "Ctrl+r",
             Action::Sync,
-            "Synchronize calendars or tasks · :sync",
+            "Synchronize mail or current PIM view · :sync",
         ),
         (
             Char('v'),

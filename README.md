@@ -318,6 +318,15 @@ une lecture, un popup ou une édition, le refresh de la liste est différé jusq
 retour au parcours afin de préserver l'interaction. `:reload` reste une relecture
 locale facultative.
 
+Dans Mail, **Ctrl+R** ou **`:sync`** lance en arrière-plan une synchronisation
+Neverest complète (`neverest sync -a <compte>`). En vue globale, chaque compte
+configuré est synchronisé ; dans un compte individuel, seul ce compte est ciblé.
+La commande utilise `[delivery].command`, `[delivery].config`, le délai
+`[delivery].timeout_seconds` et `accounts[].neverest_account` s'il est défini.
+Les demandes répétées sont regroupées et les envois et synchronisations du même
+compte sont sérialisés. La fin ou l'échec est signalé et l'index local est actualisé.
+Cette action n'est pas disponible en mode démo.
+
 Les suppressions, déplacements et changements de flags sont déposés dans
 la file producteur publique pimdir, puis traités par le service externe.
 Le `store` configuré

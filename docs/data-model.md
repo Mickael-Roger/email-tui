@@ -204,7 +204,9 @@ to the same reader. Filenames are reduced to one local component; exclusive
 creation and numeric suffixes preserve existing files and symlinks. New files
 use 0600 on Unix; failed batches remove only files they created.
 
-Carillon and Neverest run independently of the application. `storage::Changes`
+Carillon and Neverest run independently of the application. Manual `:sync` / Ctrl+R
+in Mail runs a full `neverest sync -a ACCOUNT` for the current scope, sharing the
+per-account queue and Neverest configuration with outgoing delivery. `storage::Changes`
 owns a cancellable two-second observer; it reads public change-feed stamps and
 purge counters off the UI thread, including commits in WAL. Changed stores
 invalidate navigation snapshots and refresh expanded folders/counts when idle.

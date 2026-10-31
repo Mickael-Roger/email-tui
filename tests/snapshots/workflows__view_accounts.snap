@@ -7,7 +7,7 @@ expression: "capture(&mut app, 80, 24)"
 <0>        All accounts      <n>        New directory
 </>        Filter            <space>    Mark mail
 <:>        Commands          <ctrl-c>   Twice to quit
-<esc>      Back              <esc>      Back
+<esc>      Back              <ctrl-r>   Sync mail
 
 ┌────────────────────────────── Accounts(all)[3] ──────────────────────────────┐
 │ACTIVE ACCOUNT      NAME           ADDRESS                             UNREAD │

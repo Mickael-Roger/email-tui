@@ -4,7 +4,7 @@ expression: "capture(&mut app, w, h)"
 ---
 <0> Mail            <t> Read/unread
 <2> Contacts        <m> Move mail
-                    <c> Compose mail
+                    <Ctrl+R> Sync mail
 ┌ Messages(all)[110 mail / 14 folders] ┐
 │NAME / SUBJECT                        │
 │▾ 📬 work (48/72)                     │

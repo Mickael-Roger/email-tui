@@ -662,6 +662,7 @@ pub struct App {
     event_occurrences: HashMap<std::path::PathBuf, crate::pim::EventOccurrence>,
     pim_write_focus: Option<(View, String, String)>,
     pub sync_requests: HashSet<crate::pim_sync::Target>,
+    pub mail_sync_requests: HashSet<String>,
     sync_enabled: HashSet<crate::pim_sync::Target>,
     pim_write_sync: Option<crate::pim_sync::Target>,
     pim_refresh_requested: bool,
@@ -753,6 +754,7 @@ impl App {
             event_occurrences: HashMap::new(),
             pim_write_focus: None,
             sync_requests: HashSet::new(),
+            mail_sync_requests: HashSet::new(),
             sync_enabled: HashSet::new(),
             pim_write_sync: None,
             pim_refresh_requested: false,
@@ -909,12 +911,37 @@ impl App {
         self.refresh_pim_if_idle();
     }
     fn request_sync(&mut self) {
+        if matches!(self.view, View::Messages | View::Detail | View::Accounts) {
+            if self.demo {
+                self.notify("Mail synchronization is unavailable in demo mode");
+                return;
+            }
+            let accounts: Vec<_> = self
+                .accounts
+                .iter()
+                .filter(|account| {
+                    self.scope
+                        .account
+                        .as_ref()
+                        .is_none_or(|scope| scope == &account.id)
+                })
+                .map(|account| account.id.clone())
+                .collect();
+            if accounts.is_empty() {
+                self.notify("No mail accounts available to synchronize");
+            } else {
+                let count = accounts.len();
+                self.mail_sync_requests.extend(accounts);
+                self.notify(format!("Synchronizing mail for {count} account(s)…"));
+            }
+            return;
+        }
         let target = match self.view {
             View::Calendar => crate::pim_sync::Target::Calendars,
             View::Tasks => crate::pim_sync::Target::Tasks,
             View::Contacts => crate::pim_sync::Target::Contacts,
             _ => {
-                self.notify(":sync is available in Calendar, Contacts and Tasks");
+                self.notify(":sync is available in Mail, Calendar, Contacts and Tasks");
                 return;
             }
         };
@@ -1912,6 +1939,14 @@ impl App {
         }
         self.poll_pending();
         self.storage_changed();
+    }
+    pub fn mail_sync_completed(&mut self, account: String, error: Option<String>) {
+        self.poll_pending();
+        self.storage_changed();
+        self.notify(match error {
+            Some(error) => format!("Sync mail {account} failed: {error}"),
+            None => format!("Sync mail {account} completed"),
+        });
     }
     pub fn pending_label(&self) -> String {
         let failed = self
