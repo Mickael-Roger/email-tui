@@ -11,7 +11,7 @@ expression: "capture(&mut app, w, h)"
 
 ┌──────────────────── Messages(all)[110 mail / 14 folders] ────────────────────┐
 │NAME / SUBJECT                            FROM                DATE↓           │
-│▾ 📬 work (48/72)                         you@company.example                 │
+│▾ 📬 Work (48/72)                         you@company.example                 │
 │  ▾ 📂 INBOX (37/55)                                                          │
 │    📎 Release planning — Kubernetes 1.35 alice@example.com   2026-10-18 22:14│
 │    Incident follow-up: networking        ops@example.com     2026-10-18 21:14│

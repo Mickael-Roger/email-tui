@@ -1,4 +1,4 @@
-use crate::config::{AccountConfig, Delivery};
+use crate::config::{AccountConfig, Delivery, MailConfig};
 use anyhow::{Context, Result, bail};
 use std::{
     collections::{HashMap, HashSet},
@@ -16,6 +16,7 @@ pub struct Completed {
 /// Explicit sends and manual sync share a per-account queue; no polling is scheduled.
 pub struct Sender {
     config: Delivery,
+    mail: MailConfig,
     accounts: Vec<AccountConfig>,
     events: mpsc::Sender<Completed>,
     jobs: HashMap<String, JoinHandle<()>>,
@@ -30,6 +31,7 @@ impl Sender {
     ) -> Self {
         Self {
             config,
+            mail: MailConfig::default(),
             accounts,
             events,
             jobs: HashMap::new(),
@@ -41,7 +43,14 @@ impl Sender {
         self.start(account, false);
     }
     pub fn request_sync(&mut self, account: &str) {
+        if self.mail.sync_command.is_empty() {
+            return;
+        }
         self.start(account, true);
+    }
+    pub fn with_mail_sync(mut self, config: MailConfig) -> Self {
+        self.mail = config;
+        self
     }
     fn start(&mut self, account: &str, full_sync: bool) {
         if self.jobs.contains_key(account) {
@@ -61,14 +70,17 @@ impl Sender {
             return;
         };
         let config = self.config.clone();
+        let mail = self.mail.clone();
         let events = self.events.clone();
         self.jobs.insert(
             account.id.clone(),
             tokio::spawn(async move {
-                let error = run_neverest(&config, &account, full_sync)
-                    .await
-                    .err()
-                    .map(|error| format!("{error:#}"));
+                let result = if full_sync {
+                    synchronize(&mail, &account).await
+                } else {
+                    deliver(&config, &account).await
+                };
+                let error = result.err().map(|error| format!("{error:#}"));
                 let _ = events
                     .send(Completed {
                         account: account.id,
@@ -97,12 +109,6 @@ impl Drop for Sender {
 }
 
 pub async fn deliver(config: &Delivery, account: &AccountConfig) -> Result<()> {
-    run_neverest(config, account, false).await
-}
-pub async fn synchronize(config: &Delivery, account: &AccountConfig) -> Result<()> {
-    run_neverest(config, account, true).await
-}
-async fn run_neverest(config: &Delivery, account: &AccountConfig, full_sync: bool) -> Result<()> {
     let mut command = tokio::process::Command::new(&config.command[0]);
     command
         .args(&config.command[1..])
@@ -112,10 +118,7 @@ async fn run_neverest(config: &Delivery, account: &AccountConfig, full_sync: boo
     if let Some(path) = &config.config {
         command.arg("--config").arg(path);
     }
-    // Explicit sends drain intents only; a manual full sync also fetches mail.
-    if !full_sync {
-        command.arg("--intents-only");
-    }
+    command.arg("--intents-only");
     command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -126,34 +129,31 @@ async fn run_neverest(config: &Delivery, account: &AccountConfig, full_sync: boo
         command.status(),
     )
     .await
-    .with_context(|| {
-        if full_sync {
-            "Mail synchronization timed out"
-        } else {
-            "Sending timed out"
-        }
-    })?
-    .with_context(|| {
-        if full_sync {
-            "Start Neverest for mail synchronization"
-        } else {
-            "Start Neverest for sending"
-        }
-    })?;
+    .context("Sending timed out")?
+    .context("Start Neverest for sending")?;
     if !status.success() {
         bail!(
-            "{} needs attention (Neverest exit {})",
-            if full_sync {
-                "Mail synchronization"
-            } else {
-                "Sending"
-            },
+            "Sending needs attention (Neverest exit {})",
             status
                 .code()
                 .map_or_else(|| "signal".into(), |code| code.to_string())
         );
     }
     Ok(())
+}
+
+pub async fn synchronize(config: &MailConfig, account: &AccountConfig) -> Result<()> {
+    let account = account.neverest_account.as_deref().unwrap_or(&account.id);
+    crate::pim_sync::synchronize(&crate::config::CalendarsConfig {
+        sync_command: config
+            .sync_command
+            .iter()
+            .map(|arg| arg.replace("{account}", account))
+            .collect(),
+        sync_timeout_seconds: config.sync_timeout_seconds,
+        ..Default::default()
+    })
+    .await
 }
 
 #[cfg(test)]
@@ -177,7 +177,21 @@ mod tests {
             neverest_account: Some("remote work".into()),
         };
         let (tx, mut rx) = mpsc::channel(8);
-        let mut sender = Sender::new(config.clone(), vec![account.clone()], tx);
+        let mut mail = MailConfig {
+            sync_command: config
+                .command
+                .iter()
+                .cloned()
+                .chain([
+                    "custom-sync".into(),
+                    "--account={account}".into(),
+                    "literal spaces; $HOME".into(),
+                ])
+                .collect(),
+            sync_timeout_seconds: 3,
+        };
+        let mut sender =
+            Sender::new(config.clone(), vec![account.clone()], tx).with_mail_sync(mail.clone());
         sender.request("work");
         sender.request_sync("work");
         sender.request_sync("work");
@@ -214,30 +228,35 @@ mod tests {
         assert_eq!(
             &records[2][1..],
             [
-                "sync",
-                "-a",
-                "remote work",
-                "--config",
-                config.config.as_ref().unwrap().to_str().unwrap()
+                "custom-sync",
+                "--account=remote work",
+                "literal spaces; $HOME"
             ]
         );
-        let mut failure = config;
-        failure.command = vec!["python3".into(), "-c".into(), "raise SystemExit(7)".into()];
+        mail.sync_command = vec!["python3".into(), "-c".into(), "raise SystemExit(7)".into()];
         assert!(
-            synchronize(&failure, &account)
+            synchronize(&mail, &account)
                 .await
                 .unwrap_err()
                 .to_string()
                 .contains('7')
         );
-        failure.command[2] = "import time; time.sleep(5)".into();
-        failure.timeout_seconds = 1;
+        mail.sync_command[2] = "import time; time.sleep(5)".into();
+        mail.sync_timeout_seconds = 1;
         assert!(
-            synchronize(&failure, &account)
+            synchronize(&mail, &account)
                 .await
                 .unwrap_err()
                 .to_string()
                 .contains("timed out")
+        );
+        mail.sync_command.clear();
+        assert!(
+            synchronize(&mail, &account)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("No sync_command")
         );
     }
 

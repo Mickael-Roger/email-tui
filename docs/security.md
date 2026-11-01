@@ -10,7 +10,8 @@ Neverest owns applying the queue, network connectors and reconciliation.
 Mail-server credentials stay in Neverest's configuration. Carillon handles incoming data;
 MailTUI observes public pimdir change cursors every two seconds. Explicit sends
 start Neverest with `sync -a ACCOUNT --intents-only`; manual mail synchronization
-starts a full `sync -a ACCOUNT`. Both use an argument array, null stdio, a timeout,
+starts the configured `[mail].sync_command`, with `{account}` substituted and no
+implicit arguments or shell. Both use an argument array, null stdio, a timeout,
 and cancellation on exit. Other writes wait for the external consumer or a manual
 sync. The browser command opens the local HTML viewer.
 

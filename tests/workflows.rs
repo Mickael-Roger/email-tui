@@ -23,6 +23,13 @@ async fn manual_mail_sync_respects_scope_refreshes_and_stays_disabled_in_demo() 
     app.reload(false);
     settle(&mut app, &mut events).await;
     ctrl(&mut app, 'r');
+    assert!(app.mail_sync_requests.is_empty());
+    assert!(app.toast.contains("[mail].sync_command"));
+    app.configure_mail_sync(&mailtui::config::MailConfig {
+        sync_command: vec!["custom-mail-sync".into(), "{account}".into()],
+        ..Default::default()
+    });
+    ctrl(&mut app, 'r');
     assert_eq!(
         app.mail_sync_requests,
         HashSet::from(["personal".into(), "work".into()])

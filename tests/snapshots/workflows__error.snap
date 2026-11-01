@@ -11,7 +11,7 @@ expression: "capture(&mut app, 80, 24)"
 
 ┌─── Messages(all)[44 mail / 14 folders] /from:alice@example.com kubernetes ───┐
 │NAME / SUBJECT                            FROM                DATE↓           │
-│▾ 📬 work (48/72)                         you@company.example                 │
+│▾ 📬 Work (48/72)                         you@company.example                 │
 │  ▾ 📂 INBOX (37/55)                                                          │
 │    📎 Release planning — Kubernetes 1.35 alice@example.com   2026-10-18 22:14│
 │    Bienvenue dans MailTUI ✨             alice@example.com   2026-10-18 18:14│

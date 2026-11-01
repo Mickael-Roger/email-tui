@@ -7,7 +7,7 @@ expression: "capture(&mut app, w, h)"
                     <Ctrl+R> Sync mail
 ┌ Messages(all)[110 mail / 14 folders] ┐
 │NAME / SUBJECT                        │
-│▾ 📬 work (48/72)                     │
+│▾ 📬 Work (48/72)                     │
 │  ▾ 📂 INBOX (37/55)                  │
 │    📎 Release planning — Kubernetes 1│
 │    Incident follow-up: networking    │

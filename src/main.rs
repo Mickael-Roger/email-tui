@@ -114,6 +114,7 @@ async fn main() -> Result<()> {
     app.configure_pim(config.calendar.clone(), config.contacts.clone());
     app.reload(false);
     app.configure_tasks_and_sync(&config.calendars, &config.tasks);
+    app.configure_mail_sync(&config.mail);
     if let Some(size) = args.snapshot {
         let (w, h) = size
             .split_once('x')
@@ -145,7 +146,7 @@ async fn main() -> Result<()> {
         let mut viewer: Option<Arc<Viewer>> = None;
         let (html_tx, mut html_rx) = tokio::sync::mpsc::channel::<Result<String>>(2);
         let (send_tx, mut send_rx) = tokio::sync::mpsc::channel(16);
-        let mut sender = mailtui::delivery::Sender::new(config.delivery.clone(), config.accounts.clone(), send_tx);
+        let mut sender = mailtui::delivery::Sender::new(config.delivery.clone(), config.accounts.clone(), send_tx).with_mail_sync(config.mail.clone());
         let (sync_tx, mut sync_rx) = tokio::sync::mpsc::channel(8);
         let mut synchronizer = mailtui::pim_sync::Synchronizer::new(config.calendars.clone(), config.tasks.clone(), sync_tx).with_contacts(&config.contacts);
         let mut maintenance = index_path.clone().map(|path| mailtui::index::Maintenance::start(path, config.accounts.clone()));

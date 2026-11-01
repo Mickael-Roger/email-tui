@@ -9,7 +9,7 @@ expression: "capture(&mut app, 120, 40)"
 <h/H>      HTML / remote                   <ctrl-c>   Twice to quit
 </>        Local search                    <ctrl-r>   Sync mail
 
-┌──────────────────────────────────────── Messages(work)[17 mail / 7 folders] ─────────────────────────────────────────┐
+┌──────────────────────────────────────── Messages(Work)[17 mail / 7 folders] ─────────────────────────────────────────┐
 │NAME / SUBJECT                                                FROM                          DATE↓            NEW/TOTAL│
 │▸ 📁 INBOX                                                                                                   37/55    │
 │▾ 📂 Projects                                                                                                0/0      │

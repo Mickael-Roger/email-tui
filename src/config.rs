@@ -8,6 +8,7 @@ pub struct Config {
     pub ui: Ui,
     pub viewer: Viewer,
     pub delivery: Delivery,
+    pub mail: MailConfig,
     pub llm: crate::llm::Config,
     pub accounts: Vec<AccountConfig>,
     pub calendar: CalendarConfig,
@@ -86,6 +87,21 @@ pub struct PimCollection {
     pub label: String,
     /// A khal/vdirsyncer calendar collection (.ics) or vdir address book (.vcf).
     pub path: PathBuf,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MailConfig {
+    pub sync_command: Vec<String>,
+    pub sync_timeout_seconds: u64,
+}
+impl Default for MailConfig {
+    fn default() -> Self {
+        Self {
+            sync_command: vec![],
+            sync_timeout_seconds: 240,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -203,6 +219,17 @@ impl Config {
         Ok(())
     }
     pub fn validate(&self) -> Result<()> {
+        if self.mail.sync_timeout_seconds == 0
+            || self
+                .mail
+                .sync_command
+                .first()
+                .is_some_and(|s| s.trim().is_empty())
+        {
+            bail!(
+                "mail: sync_command needs an executable and sync_timeout_seconds must be positive"
+            );
+        }
         if (!self.contacts.path.as_os_str().is_empty() && !self.contacts.path.is_absolute())
             || self.contacts.sync_timeout_seconds == 0
             || self
@@ -346,4 +373,36 @@ fn discover_collections(
     }
     discovered.sort_by(|a, b| a.id.cmp(&b.id));
     Ok(discovered)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mail_sync_configuration_is_optional_and_validated() {
+        let defaults: Config = toml::from_str("").unwrap();
+        defaults.validate().unwrap();
+        assert!(defaults.mail.sync_command.is_empty());
+        assert_eq!(defaults.mail.sync_timeout_seconds, 240);
+
+        let configured: Config = toml::from_str(
+            "[mail]\nsync_command = ['custom-sync', '--account={account}']\nsync_timeout_seconds = 60",
+        ).unwrap();
+        configured.validate().unwrap();
+        assert_eq!(
+            configured.mail.sync_command,
+            ["custom-sync", "--account={account}"]
+        );
+        assert_eq!(configured.mail.sync_timeout_seconds, 60);
+        for invalid in [
+            "[mail]\nsync_command = ['   ']",
+            "[mail]\nsync_timeout_seconds = 0",
+        ] {
+            let config: Config = toml::from_str(invalid).unwrap();
+            assert!(config.validate().unwrap_err().to_string().contains("mail:"));
+        }
+        let example: Config = toml::from_str(include_str!("../config.example.toml")).unwrap();
+        example.validate().unwrap();
+    }
 }

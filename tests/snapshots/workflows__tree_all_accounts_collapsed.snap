@@ -11,8 +11,8 @@ expression: "capture(&mut app, 80, 24)"
 
 ┌───────────────────── Messages(all)[0 mail / 14 folders] ─────────────────────┐
 │NAME / SUBJECT                            FROM                DATE↓           │
-│▸ 📬 work (48/72)                         you@company.example                 │
-│▸ 📬 personal (48/72)                     you@example.com                     │
+│▸ 📬 Work (48/72)                         you@company.example                 │
+│▸ 📬 Personal (48/72)                     you@example.com                     │
 │                                                                              │
 │                                                                              │
 │                                                                              │

@@ -11,8 +11,8 @@ expression: "capture(&mut app, 80, 24)"
          │Move 2 marked message(s) to Trash?                          │
 ┌────────│                                                            │────────┐
 │NAME / S│   1  personal / INBOX                                      │        │
-│▸ 📬 wor│   1  work / INBOX                                          │        │
-│▸ 📬 per│                                                            │        │
+│▸ 📬 Wor│   1  work / INBOX                                          │        │
+│▸ 📬 Per│                                                            │        │
 │        │                                                            │        │
 │        │                                                            │        │
 │        │                                                            │        │

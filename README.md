@@ -319,13 +319,25 @@ retour au parcours afin de préserver l'interaction. `:reload` reste une relectu
 locale facultative.
 
 Dans Mail, **Ctrl+R** ou **`:sync`** lance en arrière-plan une synchronisation
-Neverest complète (`neverest sync -a <compte>`). En vue globale, chaque compte
+via la commande configurée dans `[mail].sync_command`. En vue globale, chaque compte
 configuré est synchronisé ; dans un compte individuel, seul ce compte est ciblé.
-La commande utilise `[delivery].command`, `[delivery].config`, le délai
-`[delivery].timeout_seconds` et `accounts[].neverest_account` s'il est défini.
+Comme pour Tasks, il s'agit d'une liste d'arguments exécutée directement, sans shell
+ni arguments ajoutés. `{account}` est remplacé par `accounts[].neverest_account`
+s'il est défini, sinon par l'identifiant du compte. Le délai est configurable via
+`[mail].sync_timeout_seconds` (240 secondes par défaut).
 Les demandes répétées sont regroupées et les envois et synchronisations du même
 compte sont sérialisés. La fin ou l'échec est signalé et l'index local est actualisé.
 Cette action n'est pas disponible en mode démo.
+
+```toml
+[mail]
+sync_command = ["neverest", "sync", "-a", "{account}"]
+sync_timeout_seconds = 240
+```
+
+Sans `sync_command` (ou avec `[]`), la synchronisation manuelle est désactivée.
+Pour utiliser une configuration Neverest spécifique, ajouter `"--config", "/chemin/config.toml"`
+à cette commande ; les paramètres `[delivery]` concernent uniquement les envois.
 
 Les suppressions, déplacements et changements de flags sont déposés dans
 la file producteur publique pimdir, puis traités par le service externe.

@@ -663,6 +663,7 @@ pub struct App {
     pim_write_focus: Option<(View, String, String)>,
     pub sync_requests: HashSet<crate::pim_sync::Target>,
     pub mail_sync_requests: HashSet<String>,
+    mail_sync_enabled: bool,
     sync_enabled: HashSet<crate::pim_sync::Target>,
     pim_write_sync: Option<crate::pim_sync::Target>,
     pim_refresh_requested: bool,
@@ -755,6 +756,7 @@ impl App {
             pim_write_focus: None,
             sync_requests: HashSet::new(),
             mail_sync_requests: HashSet::new(),
+            mail_sync_enabled: false,
             sync_enabled: HashSet::new(),
             pim_write_sync: None,
             pim_refresh_requested: false,
@@ -910,10 +912,17 @@ impl App {
         });
         self.refresh_pim_if_idle();
     }
+    pub fn configure_mail_sync(&mut self, config: &crate::config::MailConfig) {
+        self.mail_sync_enabled = !config.sync_command.is_empty();
+    }
     fn request_sync(&mut self) {
         if matches!(self.view, View::Messages | View::Detail | View::Accounts) {
             if self.demo {
                 self.notify("Mail synchronization is unavailable in demo mode");
+                return;
+            }
+            if !self.mail_sync_enabled {
+                self.notify("Configure [mail].sync_command first");
                 return;
             }
             let accounts: Vec<_> = self
@@ -1418,6 +1427,13 @@ impl App {
     }
     pub fn account_name(&self) -> &str {
         self.scope.account.as_deref().unwrap_or("all")
+    }
+    pub fn account_label(&self) -> &str {
+        self.scope
+            .account
+            .as_deref()
+            .and_then(|id| self.accounts.iter().find(|account| account.id == id))
+            .map_or("all", |account| account.label.as_str())
     }
     pub fn searching(&self) -> bool {
         !self.search.is_empty()

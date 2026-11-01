@@ -13,12 +13,21 @@ browser_command = ["xdg-open", "{url}"]
 # Viewer bind is intentionally not configurable: 127.0.0.1 + ephemeral port.
 # h blocks remote images; H enables them. The page button can toggle either mode.
 
-# Neverest handles explicit sends and manual mail sync (Ctrl+R / :sync).
+# Neverest handles explicit sends.
 # Automatic incoming mail is handled by Carillon.
 [delivery]
 command = ["neverest"]
 timeout_seconds = 240
 # config = "/home/your-user/.config/neverest/config.toml"
+
+# Manual mail sync (Ctrl+R / :sync), run once per account in the current scope.
+# Like tasks.sync_command, this argument list is executed directly without a shell.
+# No arguments are added. {account} is replaced by neverest_account or the account ID.
+# Omit sync_command (or set []) to disable manual mail sync.
+[mail]
+# sync_command = ["neverest", "sync", "-a", "{account}"]
+# Add "--config", "/path/to/neverest/config.toml" here if needed.
+# sync_timeout_seconds = 240
 
 # Optional assistant. No requests or Codex process until explicitly invoked.
 # Omit this section or leave enabled=false to use MailTUI without an LLM.
