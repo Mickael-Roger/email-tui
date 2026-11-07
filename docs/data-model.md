@@ -206,7 +206,10 @@ use 0600 on Unix; failed batches remove only files they created.
 
 Carillon and Neverest run independently of the application. Manual `:sync` / Ctrl+R
 in Mail runs `[mail].sync_command` once per account in the current scope, sharing the
-per-account queue with outgoing delivery. Arguments are passed directly, replacing
+per-account queue with outgoing delivery. Focusing a folder or message narrows even
+all-account scope to that item's account. Per-account progress and latest success/error
+remain visible across refreshes; queued follow-up syncs keep the progress indicator active.
+Arguments are passed directly, replacing
 `{account}` with the Neverest account name or account ID; no arguments are added.
 The command and timeout are independent of `[delivery]`. `storage::Changes`
 owns a cancellable two-second observer; it reads public change-feed stamps and

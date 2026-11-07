@@ -5,9 +5,9 @@ expression: "capture(&mut app, 120, 40)"
 <?>        Help                            <m>        Move mail                       <0> Mail
 <t>        Read / unread                   <c>        Compose mail                    <2> Contacts
 <ctrl-d>   Delete mail                     <n>        New directory
-<enter>    Unfold / read                   <space>    Mark mail
-<h/H>      HTML / remote                   <ctrl-c>   Twice to quit
-</>        Local search                    <ctrl-r>   Sync mail
+<enter>    Unfold / read                   <ctrl-c>   Twice to quit
+<h/H>      HTML / remote                   <ctrl-r>   Sync mail
+</>        Local search
 
 ┌──────────────────────────────────────── Messages(Work)[17 mail / 7 folders] ─────────────────────────────────────────┐
 │NAME / SUBJECT                                                FROM                          DATE↓            NEW/TOTAL│

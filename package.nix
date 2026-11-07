@@ -1,7 +1,7 @@
 { lib, rustPlatform, pkg-config, makeWrapper, xdg-utils, python3 }:
 rustPlatform.buildRustPackage {
   pname = "mailtui";
-  version = "0.4.2";
+  version = "0.4.3";
   src = lib.cleanSourceWith {
     src = ./.;
     filter = path: type: lib.cleanSourceFilter path type && builtins.baseNameOf path != "target";

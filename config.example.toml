@@ -21,6 +21,7 @@ timeout_seconds = 240
 # config = "/home/your-user/.config/neverest/config.toml"
 
 # Manual mail sync (Ctrl+R / :sync), run once per account in the current scope.
+# In a folder or on a message, only its account is synchronized, even in all scope.
 # Like tasks.sync_command, this argument list is executed directly without a shell.
 # No arguments are added. {account} is replaced by neverest_account or the account ID.
 # Omit sync_command (or set []) to disable manual mail sync.

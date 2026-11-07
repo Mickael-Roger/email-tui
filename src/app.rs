@@ -355,6 +355,7 @@ pub enum Event {
     Mutation {
         generation: u64,
         result: MutationResult,
+        preserve_selection: bool,
     },
     Error {
         generation: u64,
@@ -520,6 +521,7 @@ pub fn start_worker_with_index(
                 } => Ok(Event::Mutation {
                     generation,
                     result: store.create_folder(&account, &anchor, parent.as_deref(), &name)?,
+                    preserve_selection: false,
                 }),
                 Request::Compose { draft, send, .. } => {
                     let result = store.compose(&draft, send)?;
@@ -531,7 +533,11 @@ pub fn start_worker_with_index(
                             pending: store.pending().unwrap_or_default(),
                         }
                     } else {
-                        Event::Mutation { generation, result }
+                        Event::Mutation {
+                            generation,
+                            result,
+                            preserve_selection: false,
+                        }
                     })
                 }
                 Request::Load { account, open, .. } => {
@@ -612,6 +618,10 @@ pub fn start_worker_with_index(
                 Request::Mutate { ids, mutation, .. } => Ok(Event::Mutation {
                     generation,
                     result: store.mutate(&ids, &mutation)?,
+                    preserve_selection: matches!(
+                        mutation,
+                        Mutation::Seen(_) | Mutation::Flagged(_)
+                    ),
                 }),
             })();
             let event = result.unwrap_or_else(|e| Event::Error {
@@ -635,6 +645,22 @@ fn folder_scope(key: &FolderKey) -> Scope {
 }
 fn is_inbox(folder: &Folder) -> bool {
     folder.role.as_deref() == Some("inbox") || folder.name.eq_ignore_ascii_case("INBOX")
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MailSyncStatus {
+    InProgress,
+    Success,
+    Failed,
+}
+impl MailSyncStatus {
+    pub fn symbol(self) -> &'static str {
+        match self {
+            Self::InProgress => "⟳",
+            Self::Success => "✓",
+            Self::Failed => "✗",
+        }
+    }
 }
 
 pub struct App {
@@ -663,6 +689,7 @@ pub struct App {
     pim_write_focus: Option<(View, String, String)>,
     pub sync_requests: HashSet<crate::pim_sync::Target>,
     pub mail_sync_requests: HashSet<String>,
+    mail_sync_status: HashMap<String, MailSyncStatus>,
     mail_sync_enabled: bool,
     sync_enabled: HashSet<crate::pim_sync::Target>,
     pim_write_sync: Option<crate::pim_sync::Target>,
@@ -756,6 +783,7 @@ impl App {
             pim_write_focus: None,
             sync_requests: HashSet::new(),
             mail_sync_requests: HashSet::new(),
+            mail_sync_status: HashMap::new(),
             mail_sync_enabled: false,
             sync_enabled: HashSet::new(),
             pim_write_sync: None,
@@ -925,12 +953,16 @@ impl App {
                 self.notify("Configure [mail].sync_command first");
                 return;
             }
+            let account_scope = self
+                .scope
+                .account
+                .clone()
+                .or_else(|| self.focused_folder().map(|key| key.0));
             let accounts: Vec<_> = self
                 .accounts
                 .iter()
                 .filter(|account| {
-                    self.scope
-                        .account
+                    account_scope
                         .as_ref()
                         .is_none_or(|scope| scope == &account.id)
                 })
@@ -940,6 +972,10 @@ impl App {
                 self.notify("No mail accounts available to synchronize");
             } else {
                 let count = accounts.len();
+                for account in &accounts {
+                    self.mail_sync_status
+                        .insert(account.clone(), MailSyncStatus::InProgress);
+                }
                 self.mail_sync_requests.extend(accounts);
                 self.notify(format!("Synchronizing mail for {count} account(s)…"));
             }
@@ -1956,7 +1992,25 @@ impl App {
         self.poll_pending();
         self.storage_changed();
     }
-    pub fn mail_sync_completed(&mut self, account: String, error: Option<String>) {
+    pub fn mail_sync_status(&self, account: &str) -> Option<MailSyncStatus> {
+        self.mail_sync_status.get(account).copied()
+    }
+    pub fn mail_sync_completed(
+        &mut self,
+        account: String,
+        error: Option<String>,
+        sync_pending: bool,
+    ) {
+        self.mail_sync_status.insert(
+            account.clone(),
+            if sync_pending || self.mail_sync_requests.contains(&account) {
+                MailSyncStatus::InProgress
+            } else if error.is_some() {
+                MailSyncStatus::Failed
+            } else {
+                MailSyncStatus::Success
+            },
+        );
         self.poll_pending();
         self.storage_changed();
         self.notify(match error {
@@ -4306,7 +4360,11 @@ impl App {
                     self.send_errors.remove(&account);
                     self.send_requests.insert(account);
                 }
-                Event::Mutation { generation, result }
+                Event::Mutation {
+                    generation,
+                    result,
+                    preserve_selection: false,
+                }
             }
             event => event,
         };
@@ -4479,7 +4537,11 @@ impl App {
                     "Indexing local mail… {count} messages · Esc cancels"
                 ));
             }
-            Event::Mutation { result, .. } => match result {
+            Event::Mutation {
+                result,
+                preserve_selection,
+                ..
+            } => match result {
                 MutationResult::AppliedLocal | MutationResult::Queued(_) => {
                     self.index_dirty = true;
                     let notification = match result {
@@ -4491,8 +4553,10 @@ impl App {
                     }
                     self.form_pending = false;
                     self.revision += 1;
-                    self.selected.clear();
-                    self.last_mark = None;
+                    if !preserve_selection {
+                        self.selected.clear();
+                        self.last_mark = None;
+                    }
                     if self.view == View::Detail {
                         self.back();
                     } else {

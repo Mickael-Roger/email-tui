@@ -82,6 +82,11 @@ fn palette(theme: &str) -> Palette {
 fn text(s: &str) -> String {
     terminal_text(s).replace(['\n', '\t', '\r'], " ")
 }
+fn mail_sync_prefix(app: &App, account: &str) -> String {
+    app.mail_sync_status(account)
+        .map(|status| format!("{} ", status.symbol()))
+        .unwrap_or_default()
+}
 fn block(title: impl Into<String>, p: &Palette) -> Block<'static> {
     Block::default()
         .borders(Borders::ALL)
@@ -222,7 +227,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, _preview: bool) {
                             String::new()
                         },
                         a.map(|a| text(&a.id)).unwrap_or_else(|| "all".into()),
-                        a.map(|a| text(&a.label))
+                        a.map(|a| format!("{}{}", mail_sync_prefix(app, &a.id), text(&a.label)))
                             .unwrap_or_else(|| "All accounts".into()),
                         a.map(|a| text(&a.email)).unwrap_or_else(|| "—".into()),
                         unread.to_string(),
@@ -635,7 +640,7 @@ fn header(frame: &mut Frame, app: &App, area: Rect, p: &Palette, compact: bool) 
         ],
     };
     let extra = if app.view.is_pim() {
-        [
+        vec![
             (
                 "<enter>",
                 if app.view == View::Tasks {
@@ -651,16 +656,15 @@ fn header(frame: &mut Frame, app: &App, area: Rect, p: &Palette, compact: bool) 
             ("<esc>", "Back"),
         ]
     } else {
-        [
+        vec![
             ("<m>", "Move mail"),
             ("<c>", "Compose mail"),
             ("<n>", "New directory"),
-            ("<space>", "Mark mail"),
             ("<ctrl-c>", "Twice to quit"),
             ("<ctrl-r>", "Sync mail"),
         ]
     };
-    for (column, hints) in [hints, extra.to_vec()].into_iter().enumerate() {
+    for (column, hints) in [hints, extra].into_iter().enumerate() {
         frame.render_widget(
             Paragraph::new(
                 hints
@@ -863,8 +867,9 @@ fn messages(frame: &mut Frame, app: &mut App, area: Rect, p: &Palette) {
                     (
                         String::new(),
                         format!(
-                            "{indent}{} 📬 {}{}",
+                            "{indent}{} 📬 {}{}{}",
                             if open { "▾" } else { "▸" },
+                            mail_sync_prefix(app, &a.id),
                             text(&a.label),
                             if counts {
                                 String::new()
@@ -1035,7 +1040,12 @@ fn messages(frame: &mut Frame, app: &mut App, area: Rect, p: &Palette) {
         .filter(|f| app.scope.account.as_ref().is_none_or(|a| a == &f.account))
         .count();
     let title = format!(
-        " Messages({})[{} mail / {} folders]{} ",
+        " Messages({}{})[{} mail / {} folders]{} ",
+        app.scope
+            .account
+            .as_deref()
+            .map(|id| mail_sync_prefix(app, id))
+            .unwrap_or_default(),
         text(app.account_label()),
         shown,
         folders,

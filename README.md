@@ -111,6 +111,10 @@ la vue Messages.
   prioritaire, sinon les noms comme `Trash`, `Trash/`, `INBOX.Trash` ou
   `INBOX/Trash` sont reconnus, sans distinction de casse.
 - **i/u**, **y** : lu/non lu et copie (file pimdir pour les comptes réels).
+- **t** bascule lu/non lu sur les mails marqués, sinon sur le mail courant.
+  Les changements lu/non lu et de flag conservent les marques pour pouvoir
+  ensuite déplacer tout le groupe avec **m**. Espace reste disponible même
+  si son raccourci n'est plus affiché dans le bandeau supérieur.
 - **m** ouvre le popup de déplacement : taper un filtre de type fzf
   (sous-séquence, par exemple `prrmt`), choisir avec ↑/↓ ou Tab, puis Entrée.
   Les destinations appartiennent au compte des mails sélectionnés.
@@ -320,13 +324,17 @@ locale facultative.
 
 Dans Mail, **Ctrl+R** ou **`:sync`** lance en arrière-plan une synchronisation
 via la commande configurée dans `[mail].sync_command`. En vue globale, chaque compte
-configuré est synchronisé ; dans un compte individuel, seul ce compte est ciblé.
+configuré est synchronisé lorsque le curseur est sur un en-tête de compte ; dans un
+dossier, sur un mail ou dans un compte individuel, seul le compte concerné est ciblé.
 Comme pour Tasks, il s'agit d'une liste d'arguments exécutée directement, sans shell
 ni arguments ajoutés. `{account}` est remplacé par `accounts[].neverest_account`
 s'il est défini, sinon par l'identifiant du compte. Le délai est configurable via
 `[mail].sync_timeout_seconds` (240 secondes par défaut).
 Les demandes répétées sont regroupées et les envois et synchronisations du même
 compte sont sérialisés. La fin ou l'échec est signalé et l'index local est actualisé.
+Un indicateur apparaît devant chaque compte : `⟳` pendant la synchronisation
+(y compris en attente), `✓` après succès, `✗` en cas d'échec. Dans un compte
+individuel, il apparaît dans le titre de la liste.
 Cette action n'est pas disponible en mode démo.
 
 ```toml

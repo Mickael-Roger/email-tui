@@ -19,7 +19,7 @@ pub struct Sender {
     mail: MailConfig,
     accounts: Vec<AccountConfig>,
     events: mpsc::Sender<Completed>,
-    jobs: HashMap<String, JoinHandle<()>>,
+    jobs: HashMap<String, (bool, JoinHandle<()>)>,
     again: HashSet<String>,
     full_again: HashSet<String>,
 }
@@ -74,21 +74,24 @@ impl Sender {
         let events = self.events.clone();
         self.jobs.insert(
             account.id.clone(),
-            tokio::spawn(async move {
-                let result = if full_sync {
-                    synchronize(&mail, &account).await
-                } else {
-                    deliver(&config, &account).await
-                };
-                let error = result.err().map(|error| format!("{error:#}"));
-                let _ = events
-                    .send(Completed {
-                        account: account.id,
-                        error,
-                        full_sync,
-                    })
-                    .await;
-            }),
+            (
+                full_sync,
+                tokio::spawn(async move {
+                    let result = if full_sync {
+                        synchronize(&mail, &account).await
+                    } else {
+                        deliver(&config, &account).await
+                    };
+                    let error = result.err().map(|error| format!("{error:#}"));
+                    let _ = events
+                        .send(Completed {
+                            account: account.id,
+                            error,
+                            full_sync,
+                        })
+                        .await;
+                }),
+            ),
         );
     }
     pub fn completed(&mut self, account: &str) {
@@ -99,10 +102,17 @@ impl Sender {
             self.request(account);
         }
     }
+    pub fn sync_pending(&self, account: &str) -> bool {
+        self.full_again.contains(account)
+            || self
+                .jobs
+                .get(account)
+                .is_some_and(|(full_sync, _)| *full_sync)
+    }
 }
 impl Drop for Sender {
     fn drop(&mut self) {
-        for job in self.jobs.values() {
+        for (_, job) in self.jobs.values() {
             job.abort();
         }
     }
@@ -193,17 +203,25 @@ mod tests {
         let mut sender =
             Sender::new(config.clone(), vec![account.clone()], tx).with_mail_sync(mail.clone());
         sender.request("work");
+        assert!(!sender.sync_pending("work"));
         sender.request_sync("work");
         sender.request_sync("work");
         sender.request("work"); // A queued send must still run if the full sync fails.
-        for full_sync in [false, true, false] {
+        assert!(sender.sync_pending("work"));
+        for (index, full_sync) in [false, true, true, false].into_iter().enumerate() {
             let event = tokio::time::timeout(Duration::from_secs(4), rx.recv())
                 .await
                 .unwrap()
                 .unwrap();
             assert_eq!(event.full_sync, full_sync);
             assert!(event.error.is_none());
+            if index == 1 {
+                // Repeated requests during a sync coalesce into one follow-up.
+                sender.request_sync("work");
+                sender.request_sync("work");
+            }
             sender.completed(&event.account);
+            assert_eq!(sender.sync_pending("work"), index < 2);
         }
         let records: Vec<Vec<String>> = std::fs::read_to_string(log)
             .unwrap()
@@ -212,7 +230,9 @@ mod tests {
             .collect();
         assert_eq!(
             records.iter().map(|r| r[0].as_str()).collect::<Vec<_>>(),
-            ["start", "end", "start", "end", "start", "end"]
+            [
+                "start", "end", "start", "end", "start", "end", "start", "end"
+            ]
         );
         assert_eq!(
             &records[0][1..],

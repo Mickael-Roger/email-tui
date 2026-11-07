@@ -207,7 +207,10 @@ async fn main() -> Result<()> {
                 },
                 result = send_rx.recv() => if let Some(result) = result {
                     sender.completed(&result.account);
-                    if result.full_sync { app.mail_sync_completed(result.account, result.error); }
+                    if result.full_sync {
+                        let sync_pending = sender.sync_pending(&result.account);
+                        app.mail_sync_completed(result.account, result.error, sync_pending);
+                    }
                     else { app.delivery_completed(result.account, result.error); }
                 },
                 event = events.recv() => if let Some(event) = event { app.event(event); } else { anyhow::bail!("Background worker stopped"); },

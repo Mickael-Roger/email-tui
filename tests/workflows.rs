@@ -1,6 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use mailtui::{
-    app::{Action, App, Event, Overlay, View, start_worker},
+    app::{Action, App, Event, MailSyncStatus, Overlay, View, start_worker},
     domain::*,
     storage::{DemoStore, MailStore},
     tree::{Node, RowKey},
@@ -34,17 +34,56 @@ async fn manual_mail_sync_respects_scope_refreshes_and_stays_disabled_in_demo() 
         app.mail_sync_requests,
         HashSet::from(["personal".into(), "work".into()])
     );
+    let screen = capture(&mut app, 80, 24);
+    assert!(screen.contains("📬 ⟳ Work"));
+    assert!(screen.contains("📬 ⟳ Personal"));
     app.mail_sync_requests.clear();
-    app.scope.account = Some("work".into());
-    app.view = View::Detail;
+    app.mail_sync_completed("personal".into(), None, false);
+    assert_eq!(
+        app.mail_sync_status("personal"),
+        Some(MailSyncStatus::Success)
+    );
+    app.mail_sync_completed("work".into(), None, true);
+    assert_eq!(
+        app.mail_sync_status("work"),
+        Some(MailSyncStatus::InProgress)
+    );
+    app.mail_sync_completed("work".into(), Some("offline".into()), false);
+    let screen = capture(&mut app, 80, 24);
+    assert!(screen.contains("📬 ✗ Work"));
+    assert!(screen.contains("📬 ✓ Personal"));
+
+    // Even in all-accounts scope, a nested folder or message targets its account only.
+    expand(&mut app, &mut events, "work", "Projects").await;
+    expand(&mut app, &mut events, "work", "Projects/Rust").await;
+    expand(&mut app, &mut events, "work", "Projects/Rust/MailTUI").await;
+    assert!(app.scope.account.is_none());
+    ctrl(&mut app, 'r');
+    assert_eq!(app.mail_sync_requests, HashSet::from(["work".into()]));
+    app.mail_sync_requests.clear();
+    let id = first_mail(&app, "work", "Projects/Rust/MailTUI");
+    focus_mail(&mut app, &id);
     app.execute("sync");
     assert_eq!(app.mail_sync_requests, HashSet::from(["work".into()]));
     app.mail_sync_requests.clear();
-    app.mail_sync_completed("work".into(), Some("offline".into()));
+    app.key(KeyCode::Enter.into());
+    settle(&mut app, &mut events).await;
+    assert_eq!(app.view, View::Detail);
+    app.execute("sync");
+    assert_eq!(app.mail_sync_requests, HashSet::from(["work".into()]));
+    app.mail_sync_requests.clear();
+    app.key(KeyCode::Esc.into());
+    app.scope.account = Some("work".into());
+    app.execute("sync");
+    assert_eq!(app.mail_sync_requests, HashSet::from(["work".into()]));
+    assert!(capture(&mut app, 80, 24).contains("Messages(⟳ Work)"));
+    app.mail_sync_requests.clear();
+    app.mail_sync_completed("work".into(), Some("offline".into()), false);
     assert!(app.toast.contains("offline"));
     assert!(app.index_dirty);
-    app.mail_sync_completed("work".into(), None);
+    app.mail_sync_completed("work".into(), None, false);
     assert!(app.toast.contains("completed"));
+    assert!(capture(&mut app, 80, 24).contains("Messages(✓ Work)"));
     app.demo = true;
     ctrl(&mut app, 'r');
     assert!(app.mail_sync_requests.is_empty());
@@ -145,19 +184,33 @@ async fn toggle_read_status_handles_single_mixed_selection_and_open_message() {
     settle(&mut app, &mut rx).await;
     assert!(!app.messages.iter().find(|m| m.id == unread).unwrap().seen);
 
-    app.selected.extend([unread.clone(), read.clone()]);
+    let header = capture(&mut app, 80, 24);
+    assert!(header.contains("<t>"));
+    assert!(!header.contains("<space>"));
+    for id in [&unread, &read] {
+        focus_mail(&mut app, id);
+        key(&mut app, ' ');
+    }
+    let selected = app.selected.clone();
     focus_folder(&mut app, "work", "INBOX");
     key(&mut app, 't');
     settle(&mut app, &mut rx).await;
     for id in [&unread, &read] {
         assert!(app.messages.iter().find(|m| &m.id == id).unwrap().seen);
     }
-    app.selected.extend([unread.clone(), read.clone()]);
+    assert_eq!(app.selected, selected);
+    key(&mut app, 'm');
+    let Some(Overlay::Move { ids, .. }) = &app.overlay else {
+        panic!("Move picker did not open");
+    };
+    assert_eq!(ids.iter().cloned().collect::<HashSet<_>>(), selected);
+    app.key(KeyCode::Esc.into());
     key(&mut app, 't');
     settle(&mut app, &mut rx).await;
     for id in [&unread, &read] {
         assert!(!app.messages.iter().find(|m| &m.id == id).unwrap().seen);
     }
+    assert_eq!(app.selected, selected);
 
     app.selected.insert(read.clone());
     focus_mail(&mut app, &unread);
@@ -169,6 +222,22 @@ async fn toggle_read_status_handles_single_mixed_selection_and_open_message() {
     settle(&mut app, &mut rx).await;
     assert!(app.messages.iter().find(|m| m.id == unread).unwrap().seen);
     assert!(!app.messages.iter().find(|m| m.id == read).unwrap().seen);
+    app.key(KeyCode::Esc.into());
+    assert_eq!(app.selected, selected);
+    key(&mut app, 'm');
+    app.paste("Archive");
+    app.key(KeyCode::Enter.into());
+    settle(&mut app, &mut rx).await;
+    assert!(app.selected.is_empty());
+    expand(&mut app, &mut rx, &unread.account, "Archive").await;
+    for id in [&unread, &read] {
+        assert!(
+            app.messages.iter().any(|m| m.id.account == id.account
+                && m.id.folder == "Archive"
+                && m.id.seq == id.seq)
+        );
+        assert!(!app.messages.iter().any(|m| m.id == *id));
+    }
     finish(app, rx, current, worker).await;
 }
 
@@ -998,6 +1067,7 @@ async fn fuzzy_move_directory_creation_and_composer_are_functional() {
     app.event(Event::Mutation {
         generation: 0,
         result: MutationResult::AppliedLocal,
+        preserve_selection: false,
     });
     assert!(app.form_pending && app.busy && matches!(app.overlay, Some(Overlay::Compose { .. })));
     settle(&mut app, &mut rx).await;

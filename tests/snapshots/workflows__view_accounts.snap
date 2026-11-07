@@ -5,9 +5,9 @@ expression: "capture(&mut app, 80, 24)"
 <?>        Help              <m>        Move mail         <0> Mail
 <enter/u>  Use account       <c>        Compose mail      <2> Contacts
 <0>        All accounts      <n>        New directory
-</>        Filter            <space>    Mark mail
-<:>        Commands          <ctrl-c>   Twice to quit
-<esc>      Back              <ctrl-r>   Sync mail
+</>        Filter            <ctrl-c>   Twice to quit
+<:>        Commands          <ctrl-r>   Sync mail
+<esc>      Back
 
 ┌────────────────────────────── Accounts(all)[3] ──────────────────────────────┐
 │ACTIVE ACCOUNT      NAME           ADDRESS                             UNREAD │

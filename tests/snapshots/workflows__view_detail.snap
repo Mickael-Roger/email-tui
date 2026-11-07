@@ -5,9 +5,9 @@ expression: "capture(&mut app, 80, 24)"
 <?>        Help              <m>        Move mail         <0> Mail
 <t>        Read / unread     <c>        Compose mail      <2> Contacts
 <ctrl-d>   Delete            <n>        New directory
-<h/H>      HTML / remote     <space>    Mark mail
-<ctrl-s>   Save attachments  <ctrl-c>   Twice to quit
-<pgdn/up>  Page              <ctrl-r>   Sync mail
+<h/H>      HTML / remote     <ctrl-c>   Twice to quit
+<ctrl-s>   Save attachments  <ctrl-r>   Sync mail
+<pgdn/up>  Page
 <esc>      Back
 ┌────────────────────────────────── Message ───────────────────────────────────┐
 │Release planning — Kubernetes 1.35                                            │

@@ -120,17 +120,17 @@ def main():
 
         try:
             expect(b"DEMO")
-            send(b":ns work\r", b"Messages(work)")
-            send(b":inbox\r", b"Messages(work)[55 mail")
-            send(b":dir Projects/Rust/MailTUI\r", b"Messages(work)[64 mail")
+            send(b":ns work\r", b"Messages(Work)")
+            send(b":inbox\r", b"Messages(Work)[55 mail")
+            send(b":dir Projects/Rust/MailTUI\r", b"Messages(Work)[64 mail")
             send(
-                b"\r", b"Messages(work)[55 mail"
+                b"\r", b"Messages(Work)[55 mail"
             )  # Fold only that folder's nine mails.
             send(
-                b"\r", b"Messages(work)[64 mail"
+                b"\r", b"Messages(Work)[64 mail"
             )  # Unfold cached mail in the same list.
-            send(b":inbox\r", b"Messages(work)[64 mail")
-            send(b":ns personal\r", b"Messages(personal)")
+            send(b":inbox\r", b"Messages(Work)[64 mail")
+            send(b":ns personal\r", b"Messages(Personal)")
             send(b"0", b"Messages(all)")
             send(b":ns\r", b"ADDRESS")
             send(b":directories\r", b"NAME / SUBJECT")
