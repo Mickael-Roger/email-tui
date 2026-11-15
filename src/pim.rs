@@ -127,6 +127,7 @@ pub struct Task {
     pub status: String,
     pub priority: String,
     pub description: String,
+    pub comments: String,
     pub file: PathBuf,
     pub source: String,
 }
@@ -294,6 +295,26 @@ fn get(lines: &[String], bounds: (usize, usize), key: &str) -> String {
     }
     String::new()
 }
+fn task_comments(lines: &[String], bounds: (usize, usize)) -> String {
+    let mut depth = 0;
+    let mut comments = vec![];
+    for line in &lines[bounds.0 + 1..bounds.1] {
+        if line.to_ascii_uppercase().starts_with("BEGIN:") {
+            depth += 1;
+        }
+        if depth == 0
+            && let Some((name, _, value)) = property(line)
+            && name.eq_ignore_ascii_case("COMMENT")
+        {
+            comments.push(unescape(value));
+        }
+        if line.to_ascii_uppercase().starts_with("END:") {
+            depth -= 1;
+        }
+    }
+    comments.join("\n\n")
+}
+
 fn read(path: &Path) -> Result<String> {
     let metadata = fs::symlink_metadata(path)?;
     ensure!(
@@ -382,6 +403,7 @@ pub fn load_with_tasks(
                             },
                             priority: get(&logical, bounds, "PRIORITY"),
                             description: get(&logical, bounds, "DESCRIPTION"),
+                            comments: task_comments(&logical, bounds),
                             file,
                             source,
                         });
@@ -1284,6 +1306,29 @@ fn task_document(task: &Task) -> Result<String> {
         lines(&task.source)
     };
     let prior_status = get(&logical, range(&logical, "VTODO")?, "STATUS");
+    // Preserve repeated comments and their parameters unless the user edits them.
+    if task.comments != task_comments(&logical, range(&logical, "VTODO")?) {
+        let bounds = range(&logical, "VTODO")?;
+        let mut depth = 0;
+        let mut remove = vec![];
+        for (index, line) in logical.iter().enumerate().take(bounds.1).skip(bounds.0 + 1) {
+            if line.to_ascii_uppercase().starts_with("BEGIN:") {
+                depth += 1;
+            }
+            if depth == 0
+                && property(line).is_some_and(|(name, _, _)| name.eq_ignore_ascii_case("COMMENT"))
+            {
+                remove.push(index);
+            }
+            if line.to_ascii_uppercase().starts_with("END:") {
+                depth -= 1;
+            }
+        }
+        for index in remove.into_iter().rev() {
+            logical.remove(index);
+        }
+        set(&mut logical, "VTODO", "COMMENT", &task.comments, false)?;
+    }
     for (name, value, date) in [
         ("UID", &task.uid, false),
         ("SUMMARY", &task.summary, false),

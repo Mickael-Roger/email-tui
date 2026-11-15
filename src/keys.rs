@@ -42,6 +42,7 @@ pub enum Action {
     Quit,
     Compose,
     CreateFolder,
+    CreateTaskFromMail,
     Reply,
     ReplyAll,
     Forward,
@@ -243,6 +244,13 @@ pub fn bindings() -> Vec<Binding> {
             "H",
             Action::HtmlRemote,
             "Open HTML · remote images enabled",
+        ),
+        (
+            Char('t'),
+            M::CONTROL,
+            "Ctrl+t",
+            Action::CreateTaskFromMail,
+            "Create task from selected emails · links in comments",
         ),
         (
             Char('c'),

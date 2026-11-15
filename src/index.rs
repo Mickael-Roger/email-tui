@@ -426,6 +426,20 @@ impl SearchIndex {
         tx.commit()?;
         Ok(())
     }
+    /// Candidates include replies; callers must verify the actual Message-ID.
+    pub fn referencing_message_id(&self, message_id: &str) -> Result<Vec<Message>> {
+        let mut statement = self.db.prepare(
+            "SELECT metadata FROM entries JOIN thread_links USING(key)
+             WHERE token=?1 ORDER BY date DESC, account, folder, key",
+        )?;
+        let rows = statement
+            .query_map([message_id], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter()
+            .map(|s| serde_json::from_str(&s).map_err(Into::into))
+            .collect()
+    }
+
     /// Exact RFC header connectivity, including shared missing ancestors. The
     /// account constraint applies at every recursion step, not just afterwards.
     pub fn thread(&self, id: &MessageId, account: Option<&str>) -> Result<(Vec<Message>, bool)> {

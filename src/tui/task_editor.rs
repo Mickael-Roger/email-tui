@@ -34,7 +34,7 @@ pub(super) fn popup(area: Rect, width: u16, height: u16) -> Rect {
 }
 
 pub(super) fn draw(frame: &mut Frame, app: &App, area: Rect, p: &Palette, editor: &TaskEditor) {
-    let rect = popup(area, 84, 27);
+    let rect = popup(area, 84, 31);
     frame.render_widget(Clear, rect);
     let border = block(
         if editor.original.is_some() {
@@ -58,12 +58,13 @@ pub(super) fn draw(frame: &mut Frame, app: &App, area: Rect, p: &Palette, editor
     ])
     .split(inner);
     let form = Form { app, p, editor };
-    if parts[0].width >= 54 && parts[0].height >= 18 {
+    if parts[0].width >= 54 && parts[0].height >= 21 {
         let rows = Layout::vertical([
             Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Length(3),
+            Constraint::Min(3),
             Constraint::Min(3),
             Constraint::Length(3),
         ])
@@ -73,7 +74,7 @@ pub(super) fn draw(frame: &mut Frame, app: &App, area: Rect, p: &Palette, editor
         for (row, fields) in [
             (rows[2], [Field::Status, Field::Priority]),
             (rows[3], [Field::Due, Field::Start]),
-            (rows[5], [Field::Save, Field::Cancel]),
+            (rows[6], [Field::Save, Field::Cancel]),
         ] {
             let columns =
                 Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
@@ -84,6 +85,7 @@ pub(super) fn draw(frame: &mut Frame, app: &App, area: Rect, p: &Palette, editor
             }
         }
         form.field(frame, rows[4], Field::Description);
+        form.field(frame, rows[5], Field::Comments);
     } else {
         // Keep the focused control visible on small terminals.
         let row_height = if parts[0].height >= 6 { 3 } else { 1 };
@@ -110,14 +112,17 @@ pub(super) fn draw(frame: &mut Frame, app: &App, area: Rect, p: &Palette, editor
     }
     let help = if app.pim_pending {
         "Saving task…"
+    } else if editor.opening_link {
+        "Opening linked email… Esc cancel"
     } else {
-        "Tab / Shift+Tab fields · Enter select · Ctrl+S save · Esc cancel\n←/→ choices · Dates open a calendar · Enter adds a line in description"
+        "Tab / Shift+Tab fields · Enter select · Ctrl+S save · Esc cancel\nCtrl+O open linked email · Enter adds a line in notes"
     };
     frame.render_widget(
         Paragraph::new(help).style(Style::default().fg(p.muted)),
         parts[2],
     );
     match &editor.popup {
+        Some(Popup::Links { links, row }) => draw_links(frame, area, p, links, *row),
         Some(Popup::Choice { kind, row }) => draw_choices(frame, app, area, p, *kind, *row),
         Some(Popup::Date { field, picker }) => draw_date(frame, area, p, *field, picker),
         None => {}
@@ -132,7 +137,10 @@ struct Form<'a> {
 impl Form<'_> {
     fn field(&self, frame: &mut Frame, rect: Rect, field: Field) {
         let editor = self.editor;
-        let active = editor.focus == field && editor.popup.is_none() && !self.app.pim_pending;
+        let active = editor.focus == field
+            && editor.popup.is_none()
+            && !self.app.pim_pending
+            && !editor.opening_link;
         let (label, value) = match field {
             Field::List => (
                 if editor.original.is_some() {
@@ -152,6 +160,7 @@ impl Form<'_> {
             Field::Due => ("Due date ▾", date_label(&editor.due)),
             Field::Start => ("Start date ▾", date_label(&editor.start)),
             Field::Description => ("Description", editor.description.text.clone()),
+            Field::Comments => ("Comments · email links", editor.comments.text.clone()),
             Field::Save => ("", "Save".into()),
             Field::Cancel => ("", "Cancel".into()),
         };
@@ -197,6 +206,7 @@ impl Form<'_> {
         let input = match field {
             Field::Title => Some(&editor.title),
             Field::Description => Some(&editor.description),
+            Field::Comments => Some(&editor.comments),
             _ => None,
         };
         if let Some(input) = input {
@@ -362,6 +372,33 @@ fn draw_choices(frame: &mut Frame, app: &App, area: Rect, p: &Palette, kind: Cho
     frame.render_widget(Paragraph::new(lines), parts[0]);
     frame.render_widget(
         Paragraph::new("↑/↓ choose · Enter apply · Esc back\nNumber keys select directly")
+            .style(Style::default().fg(p.muted)),
+        parts[1],
+    );
+}
+
+fn draw_links(frame: &mut Frame, area: Rect, p: &Palette, links: &[String], row: usize) {
+    let rect = popup(area, 84, links.len().min(12) as u16 + 4);
+    frame.render_widget(Clear, rect);
+    let border = block(" Linked emails · open in MailTUI ", p).style(p.base);
+    let inner = border.inner(rect);
+    frame.render_widget(border, rect);
+    let parts = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
+    let first = row.saturating_sub(parts[0].height.saturating_sub(1) as usize);
+    let lines: Vec<_> = links
+        .iter()
+        .enumerate()
+        .skip(first)
+        .map(|(index, link)| {
+            Line::styled(
+                format!("{} {}", if row == index { "›" } else { " " }, text(link)),
+                if row == index { p.selected } else { p.base },
+            )
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(lines), parts[0]);
+    frame.render_widget(
+        Paragraph::new("↑/↓ choose · Enter open email · Esc back")
             .style(Style::default().fg(p.muted)),
         parts[1],
     );

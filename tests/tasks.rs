@@ -145,6 +145,225 @@ fn save(app: &mut App) {
 }
 
 #[tokio::test]
+async fn mail_selection_creates_one_task_with_links_in_comments_and_keeps_mail_context() {
+    let root = tempfile::tempdir().unwrap();
+    let config = config(root.path());
+    let current = Arc::new(AtomicU64::new(0));
+    let (tx, mut events, worker) = start_worker(Box::new(DemoStore::new()), current.clone());
+    let mut app = App::new(true, "no-color".into(), current, tx);
+    app.configure_tasks_and_sync(&config.calendars, &config.tasks);
+    app.reload(false);
+    settle(&mut app, &mut events).await;
+
+    // A bare account cannot become an email reference.
+    app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL));
+    assert!(app.overlay.is_none());
+    assert!(app.toast.contains("Select a message"));
+
+    app.execute("unified");
+    settle(&mut app, &mut events).await;
+    let messages: Vec<_> = ["personal", "work"]
+        .into_iter()
+        .map(|account| {
+            app.messages
+                .iter()
+                .find(|m| m.id.account == account && !m.attachment)
+                .unwrap()
+                .clone()
+        })
+        .collect();
+    for message in &messages {
+        app.selected.insert(message.id.clone());
+    }
+    app.expanded.clear();
+    let row = app.row;
+    let selected = app.selected.clone();
+    app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL));
+    settle(&mut app, &mut events).await;
+    let Some(Overlay::TaskForm(editor)) = &app.overlay else {
+        panic!("Missing task editor")
+    };
+    assert!(editor.title.text.is_empty());
+    assert!(editor.description.text.is_empty());
+    let comments = editor.comments.text.clone();
+    assert_eq!(comments.matches("mid:").count(), 2);
+    for message in &messages {
+        assert!(comments.contains(&message.subject));
+        assert!(comments.contains(&format!(
+            "mid:demo-{}-{}@example.com",
+            message.id.seq, message.id.account
+        )));
+    }
+
+    // The usual selectors and fields stay available while Mail remains active.
+    app.key(KeyCode::Enter.into());
+    app.key(KeyCode::Down.into());
+    app.key(KeyCode::Enter.into());
+    app.key(KeyCode::Tab.into());
+    app.paste("Follow up on these emails");
+    if let Some(Overlay::TaskForm(editor)) = &mut app.overlay {
+        editor.focus = mailtui::task_form::Field::Description;
+    }
+    app.paste("Separate task description");
+    app.key(KeyCode::Tab.into());
+    app.key(KeyCode::Enter.into());
+    app.paste("Notes: café, 日本語; follow up");
+    save(&mut app);
+    settle(&mut app, &mut events).await;
+    assert!(app.overlay.is_none());
+    assert_eq!(app.view, View::Messages);
+    assert_eq!(app.row, row);
+    assert_eq!(app.selected, selected);
+    assert_eq!(app.tasks.len(), 1);
+    let task = &app.tasks[0];
+    assert_eq!(task.collection, "work");
+    assert_eq!(task.summary, "Follow up on these emails");
+    assert_eq!(task.description, "Separate task description");
+    assert_eq!(
+        task.comments,
+        format!("{comments}\nNotes: café, 日本語; follow up")
+    );
+    assert!(fs::read_to_string(&task.file).unwrap().contains("COMMENT:"));
+    assert!(app.sync_requests.contains(&Target::Tasks));
+
+    app.key(KeyCode::Char('3').into());
+    settle(&mut app, &mut events).await;
+    app.expanded_task_lists.insert("work".into());
+    assert!(app.focus_pim_key(&mailtui::app::PimRowKey::Entry {
+        collection: "work".into(),
+        file: app.tasks[0].file.clone(),
+    }));
+    app.key(KeyCode::Enter.into());
+    let Some(Overlay::TaskForm(editor)) = &app.overlay else {
+        panic!("Missing task editor")
+    };
+    assert_eq!(editor.comments.text, app.tasks[0].comments);
+    drop(app);
+    drop(events);
+    worker.await.unwrap();
+}
+
+#[tokio::test]
+async fn mail_task_uses_focused_or_open_email_and_cancel_never_writes() {
+    let root = tempfile::tempdir().unwrap();
+    let config = config(root.path());
+    let current = Arc::new(AtomicU64::new(0));
+    let (tx, mut events, worker) = start_worker(Box::new(DemoStore::new()), current.clone());
+    let mut app = App::new(true, "no-color".into(), current, tx);
+    app.reload(false);
+    settle(&mut app, &mut events).await;
+    app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL));
+    assert!(app.toast.contains("No task lists"));
+    app.configure_tasks_and_sync(&config.calendars, &config.tasks);
+    settle(&mut app, &mut events).await;
+    app.execute("unified");
+    settle(&mut app, &mut events).await;
+    let message = app.messages[0].clone();
+    assert!(app.focus_key(&mailtui::tree::RowKey::Message(message.id.clone())));
+    for reader in [false, true] {
+        if reader {
+            app.key(KeyCode::Enter.into());
+            settle(&mut app, &mut events).await;
+            // Marks from the list do not override the open email.
+            app.selected.insert(app.messages[1].id.clone());
+        }
+        let view = app.view;
+        app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL));
+        settle(&mut app, &mut events).await;
+        let Some(Overlay::TaskForm(editor)) = &app.overlay else {
+            panic!("Missing task editor")
+        };
+        assert_eq!(editor.title.text, message.subject);
+        assert_eq!(editor.comments.text.matches("mid:").count(), 1);
+        app.key(KeyCode::Esc.into());
+        assert!(app.overlay.is_none());
+        assert_eq!(app.view, view);
+        assert!(app.tasks.is_empty());
+        assert!(app.sync_requests.is_empty());
+    }
+    for list in &app.task_collections {
+        assert_eq!(fs::read_dir(&list.path).unwrap().count(), 0);
+    }
+    app.key(KeyCode::Esc.into());
+    app.selected.clear();
+    // A missing MIME must fail the whole preparation, not produce partial links.
+    app.messages[0].id.seq = i64::MAX;
+    assert!(app.focus_key(&mailtui::tree::RowKey::Message(app.messages[0].id.clone())));
+    app.key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::CONTROL));
+    settle(&mut app, &mut events).await;
+    assert!(app.overlay.is_none());
+    assert!(!app.toast.is_empty());
+    assert!(app.tasks.is_empty());
+    drop(app);
+    drop(events);
+    worker.await.unwrap();
+}
+
+#[test]
+fn task_comments_preserve_repeated_properties_and_edit_without_leaving_stale_links() {
+    let root = tempfile::tempdir().unwrap();
+    let config = config(root.path());
+    let list = &config.tasks.collections[0];
+    let file = list.path.join("comments.ics");
+    fs::write(
+        &file,
+        TODO.replace(
+            "SUMMARY:Planning",
+            "SUMMARY:Planning\r\nCOMMENT;LANGUAGE=en:First note\r\nCOMMENT:mid:second@example.test",
+        )
+        .replace("ACTION:DISPLAY", "ACTION:DISPLAY\r\nCOMMENT:Alarm comment"),
+    )
+    .unwrap();
+    let mut task = pim::load_with_tasks(&[], &[], &config.tasks.collections)
+        .tasks
+        .remove(0);
+    assert_eq!(task.comments, "First note\n\nmid:second@example.test");
+    task.summary = "Renamed".into();
+    pim::write_task(list, &task).unwrap();
+    let raw = fs::read_to_string(&file).unwrap();
+    assert!(raw.contains("COMMENT;LANGUAGE=en:First note"));
+    assert!(raw.contains("COMMENT:mid:second@example.test"));
+    let mut task = pim::load_with_tasks(&[], &[], &config.tasks.collections)
+        .tasks
+        .remove(0);
+    task.comments = "Replacement\nmid:new@example.test".into();
+    pim::write_task(list, &task).unwrap();
+    let mut task = pim::load_with_tasks(&[], &[], &config.tasks.collections)
+        .tasks
+        .remove(0);
+    assert_eq!(task.comments, "Replacement\nmid:new@example.test");
+    let raw = fs::read_to_string(&file).unwrap();
+    assert!(!raw.contains("mid:second"));
+    assert!(raw.contains("COMMENT:Alarm comment"));
+    task.comments.clear();
+    pim::write_task(list, &task).unwrap();
+    let task = pim::load_with_tasks(&[], &[], &config.tasks.collections)
+        .tasks
+        .remove(0);
+    assert!(task.comments.is_empty());
+    assert!(
+        fs::read_to_string(file)
+            .unwrap()
+            .contains("COMMENT:Alarm comment")
+    );
+}
+
+#[test]
+fn message_links_encode_reserved_characters_and_require_a_message_id() {
+    assert_eq!(
+        mailtui::mime::message_link(b"Message-ID: <part/42+tag?%#@example.test>\r\n\r\nBody")
+            .unwrap(),
+        "mid:part%2F42%2Btag%3F%25%23@example.test"
+    );
+    assert!(
+        mailtui::mime::message_link(b"Subject: No ID\r\n\r\nBody")
+            .unwrap_err()
+            .to_string()
+            .contains("Message-ID")
+    );
+}
+
+#[tokio::test]
 async fn tasks_ui_and_calendar_writes_request_the_right_sync_and_defer_refresh_during_forms() {
     let root = tempfile::tempdir().unwrap();
     let config = config(root.path());

@@ -56,6 +56,62 @@ pub fn terminal_text(s: &str) -> String {
         .collect()
 }
 
+/// Decode the Message-ID from an RFC 2392 message link.
+pub fn message_link_id(link: &str) -> Result<String> {
+    let encoded = link
+        .strip_prefix("mid:")
+        .context("Expected a mid: email link")?;
+    let mut decoded = Vec::with_capacity(encoded.len());
+    let mut bytes = encoded.bytes();
+    while let Some(byte) = bytes.next() {
+        if byte == b'%' {
+            let high = bytes.next().and_then(|b| (b as char).to_digit(16));
+            let low = bytes.next().and_then(|b| (b as char).to_digit(16));
+            let (Some(high), Some(low)) = (high, low) else {
+                bail!("Invalid percent encoding in email link")
+            };
+            decoded.push((high * 16 + low) as u8);
+        } else {
+            anyhow::ensure!(
+                byte.is_ascii_alphanumeric() || b"-._~@".contains(&byte),
+                "Invalid character in email link"
+            );
+            decoded.push(byte);
+        }
+    }
+    let id = String::from_utf8(decoded).context("Email link is not valid UTF-8")?;
+    anyhow::ensure!(
+        !id.is_empty() && !id.chars().any(char::is_control),
+        "Email link has an invalid Message-ID"
+    );
+    Ok(id)
+}
+
+/// RFC 2392 message link, independent of the message's current mail folder.
+pub fn message_link(raw: &[u8]) -> Result<String> {
+    anyhow::ensure!(
+        raw.len() <= crate::storage::MAX_MIME,
+        "MIME exceeds 16 MiB limit"
+    );
+    let message = MessageParser::default()
+        .parse_headers(raw)
+        .context("Malformed MIME message")?;
+    let id = message
+        .message_id()
+        .filter(|id| !id.is_empty())
+        .context("Email has no Message-ID; cannot create a message link")?;
+    let mut link = String::from("mid:");
+    use std::fmt::Write;
+    for byte in id.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~@".contains(&byte) {
+            link.push(byte as char);
+        } else {
+            write!(&mut link, "%{byte:02X}").expect("writing to a String");
+        }
+    }
+    Ok(link)
+}
+
 pub fn parse(raw: &[u8]) -> Result<ParsedMessage> {
     if raw.len() > crate::storage::MAX_MIME {
         bail!("MIME exceeds 16 MiB limit");

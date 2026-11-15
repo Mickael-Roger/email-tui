@@ -227,6 +227,17 @@ passés directement au programme, sans shell.
 
 Configuration TOML et détails des formats : **[docs/pim.md](docs/pim.md)**.
 
+### Create a task from selected emails
+
+In the mail list or message reader, **Ctrl+T** opens the task creation popup for
+the marked emails, or the current email when none are marked. Choose the task
+list, title and other fields as usual. Email subjects and `mid:` links are filled
+into **Comments**, stored as VTODO `COMMENT`, separately from the description.
+**Ctrl+O** in the task form lists the links and opens the chosen email inside
+MailTUI; **Esc** from the email returns to the preserved task form.
+**Ctrl+S** saves; **Esc** cancels. See [the mail-to-task workflow](docs/mail-to-task.md)
+for setup and link handling details.
+
 ## Composer un email
 
 **c** (ou `:compose`) ouvre le compositeur intégré : compte expéditeur,

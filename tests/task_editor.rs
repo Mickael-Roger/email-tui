@@ -147,6 +147,8 @@ async fn editing_uses_dropdowns_and_calendar_and_preserves_original_ics_metadata
     press(app, KeyCode::Enter);
     app.paste("Dernière ligne");
     press(app, KeyCode::Tab);
+    assert_eq!(editor(app).focus, Field::Comments);
+    press(app, KeyCode::Tab);
     assert_eq!(editor(app).focus, Field::Save);
     press(app, KeyCode::Enter);
     assert!(app.pim_pending);

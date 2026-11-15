@@ -211,6 +211,7 @@ pub enum Overlay {
 
 #[derive(Clone)]
 struct Navigation {
+    task_editor: Option<Box<crate::task_form::TaskEditor>>,
     view: View,
     key: Option<RowKey>,
     row: usize,
@@ -231,6 +232,14 @@ struct Navigation {
 }
 
 pub enum Request {
+    OpenTaskMail {
+        generation: u64,
+        link: String,
+    },
+    TaskFromMail {
+        generation: u64,
+        messages: Vec<Message>,
+    },
     Pim {
         generation: u64,
         calendars: Vec<crate::config::PimCollection>,
@@ -296,6 +305,15 @@ pub enum Request {
     },
 }
 pub enum Event {
+    TaskMail {
+        generation: u64,
+        result: Result<Box<(Message, ParsedMessage)>, String>,
+    },
+    TaskFromMail {
+        generation: u64,
+        title: String,
+        comments: String,
+    },
     Pim {
         generation: u64,
         result: Result<crate::pim::Snapshot, String>,
@@ -365,6 +383,8 @@ pub enum Event {
 impl Event {
     fn generation(&self) -> u64 {
         match self {
+            Self::TaskMail { generation, .. } => *generation,
+            Self::TaskFromMail { generation, .. } => *generation,
             Self::Pim { generation, .. } => *generation,
             Self::SavedAttachments { generation, .. } => *generation,
             Self::Pending { generation, .. } | Self::Submitted { generation, .. } => *generation,
@@ -405,6 +425,8 @@ pub fn start_worker_with_index(
     let worker = tokio::task::spawn_blocking(move || {
         while let Some(command) = commands.blocking_recv() {
             let generation = match &command {
+                Request::OpenTaskMail { generation, .. } => *generation,
+                Request::TaskFromMail { generation, .. } => *generation,
                 Request::Pim { generation, .. } => *generation,
                 Request::SaveAttachments { generation, .. } => *generation,
                 Request::Pending { generation } => *generation,
@@ -432,6 +454,64 @@ pub fn start_worker_with_index(
                 continue;
             }
             let result: anyhow::Result<Event> = (|| match command {
+                Request::OpenTaskMail { link, .. } => {
+                    let result = (|| -> anyhow::Result<_> {
+                        let target = crate::mime::message_link_id(&link)?;
+                        let index = if let Some(path) = &index_path {
+                            crate::search::SearchIndex::reader(path)?
+                        } else {
+                            let index = crate::search::SearchIndex::new()?;
+                            index.fill_store(store.as_ref())?;
+                            index
+                        };
+                        for message in index.referencing_message_id(&target)? {
+                            anyhow::ensure!(
+                                current.load(Ordering::Relaxed) == generation,
+                                "Request cancelled"
+                            );
+                            let Ok(raw) = store.raw(&message.id) else {
+                                continue;
+                            };
+                            let Ok(candidate) = crate::mime::message_link(&raw) else {
+                                continue;
+                            };
+                            if crate::mime::message_link_id(&candidate)? == target {
+                                return Ok(Box::new((message, crate::mime::parse(&raw)?)));
+                            }
+                        }
+                        anyhow::bail!(
+                            "Linked email not found in the local index or its MIME is unavailable: {link}"
+                        );
+                    })();
+                    Ok(Event::TaskMail {
+                        generation,
+                        result: result.map_err(|error| format!("{error:#}")),
+                    })
+                }
+                Request::TaskFromMail { messages, .. } => {
+                    let mut comments = Vec::with_capacity(messages.len());
+                    for message in &messages {
+                        anyhow::ensure!(
+                            current.load(Ordering::Relaxed) == generation,
+                            "Request cancelled"
+                        );
+                        let link = crate::mime::message_link(&store.raw(&message.id)?)
+                            .map_err(|error| anyhow::anyhow!("{}: {error:#}", message.subject))?;
+                        comments.push(format!(
+                            "{}\n{link}",
+                            crate::mime::terminal_text(&message.subject)
+                        ));
+                    }
+                    Ok(Event::TaskFromMail {
+                        generation,
+                        title: if messages.len() == 1 {
+                            messages[0].subject.clone()
+                        } else {
+                            String::new()
+                        },
+                        comments: comments.join("\n\n"),
+                    })
+                }
                 Request::Pim {
                     calendars,
                     books,
@@ -900,6 +980,10 @@ impl App {
             && !self.pim_loading
             && !self.pim_pending
             && self.overlay.is_none()
+            && !self
+                .stack
+                .iter()
+                .any(|navigation| navigation.task_editor.is_some())
         {
             self.pim_refresh_requested = !self.pim_request(crate::pim::Change::Load);
         }
@@ -913,6 +997,10 @@ impl App {
             || self.pim_pending
             || self.pim_refresh_requested
             || self.overlay.is_some()
+            || self
+                .stack
+                .iter()
+                .any(|navigation| navigation.task_editor.is_some())
             || !self
                 .event_occurrences
                 .values()
@@ -2305,6 +2393,7 @@ impl App {
         self.generation();
         self.busy = false;
         self.stack.push(Navigation {
+            task_editor: None,
             view: self.view,
             key,
             row: self.row,
@@ -2379,6 +2468,7 @@ impl App {
                 self.reload(false);
             }
         }
+        self.overlay = n.task_editor.map(Overlay::TaskForm);
     }
     pub fn switch_account(&mut self, account: Option<String>) {
         if self.view.is_pim() {
@@ -2652,7 +2742,7 @@ impl App {
             }) {
                 anyhow::bail!("Unable to queue operation; retry");
             }
-        } else if self.view == View::Tasks {
+        } else if self.view == View::Tasks || matches!(self.overlay, Some(Overlay::TaskForm(_))) {
             let collection = self
                 .task_collections
                 .get(collection)
@@ -2674,6 +2764,7 @@ impl App {
                 priority: fields[3].text.clone(),
                 description: fields[4].text.clone(),
                 start: fields[5].text.clone(),
+                comments: fields[6].text.clone(),
                 file: prior.map(|t| t.file.clone()).unwrap_or_default(),
                 source: prior.map(|t| t.source.clone()).unwrap_or_default(),
             };
@@ -2772,6 +2863,13 @@ impl App {
                         }
                     }
                     crate::task_form::Action::Continue => {}
+                    crate::task_form::Action::OpenLink(link) => {
+                        let generation = self.generation();
+                        if self.send(Request::OpenTaskMail { generation, link }) {
+                            editor.opening_link = true;
+                            editor.error = None;
+                        }
+                    }
                 }
                 self.overlay = Some(Overlay::TaskForm(editor));
                 return;
@@ -3348,6 +3446,40 @@ impl App {
                 } else {
                     self.input = Some((InputMode::Copy, Input::default()));
                 }
+            }
+            CreateTaskFromMail if matches!(self.view, View::Messages | View::Detail) => {
+                if self.task_collections.is_empty() {
+                    self.notify("No task lists configured");
+                    return;
+                }
+                if self.pim_loading || self.pim_pending {
+                    self.notify("Wait for the PIM operation to finish");
+                    return;
+                }
+                let ids = self.targets();
+                if ids.is_empty() {
+                    self.notify("Select a message; account and folder rows are not emails");
+                    return;
+                }
+                let messages: Vec<_> = ids
+                    .iter()
+                    .filter_map(|id| {
+                        self.detail
+                            .iter()
+                            .chain(&self.messages)
+                            .find(|message| &message.id == id)
+                            .cloned()
+                    })
+                    .collect();
+                if messages.len() != ids.len() {
+                    self.notify("Some selected emails are no longer loaded; refresh the selection");
+                    return;
+                }
+                let generation = self.generation();
+                self.send(Request::TaskFromMail {
+                    generation,
+                    messages,
+                });
             }
             CreateFolder if self.view.is_pim() => self.pim_form(None),
             CreateFolder => {
@@ -4389,6 +4521,43 @@ impl App {
         let focus = self.focused_key();
         self.busy = false;
         match event {
+            Event::TaskMail { result, .. } => {
+                if matches!(&self.overlay, Some(Overlay::TaskForm(editor)) if editor.opening_link) {
+                    match result {
+                        Ok(mail) => {
+                            let Some(Overlay::TaskForm(mut editor)) = self.overlay.take() else {
+                                unreachable!()
+                            };
+                            editor.opening_link = false;
+                            self.navigate(View::Detail);
+                            self.stack.last_mut().expect("navigation entry").task_editor =
+                                Some(editor);
+                            let (message, parsed) = *mail;
+                            self.detail = Some(message);
+                            self.parsed = Some(parsed);
+                        }
+                        Err(error) => {
+                            if let Some(Overlay::TaskForm(editor)) = &mut self.overlay {
+                                editor.opening_link = false;
+                                editor.error = Some(error);
+                            }
+                        }
+                    }
+                }
+            }
+            Event::TaskFromMail {
+                title, comments, ..
+            } => {
+                if matches!(self.view, View::Messages | View::Detail)
+                    && self.overlay.is_none()
+                    && self.input.is_none()
+                {
+                    let mut editor = crate::task_form::TaskEditor::new(0, None, None);
+                    editor.title.set(crate::mime::terminal_text(&title));
+                    editor.comments.set(comments);
+                    self.overlay = Some(Overlay::TaskForm(Box::new(editor)));
+                }
+            }
             Event::Pending { .. }
             | Event::Submitted { .. }
             | Event::SavedAttachments { .. }

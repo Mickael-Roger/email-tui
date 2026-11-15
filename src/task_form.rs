@@ -30,11 +30,12 @@ pub enum Field {
     Due,
     Start,
     Description,
+    Comments,
     Save,
     Cancel,
 }
 impl Field {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::List,
         Self::Title,
         Self::Status,
@@ -42,6 +43,7 @@ impl Field {
         Self::Due,
         Self::Start,
         Self::Description,
+        Self::Comments,
         Self::Save,
         Self::Cancel,
     ];
@@ -57,14 +59,16 @@ pub enum Choice {
 }
 #[derive(Clone, Debug)]
 pub enum Popup {
+    Links { links: Vec<String>, row: usize },
     Choice { kind: Choice, row: usize },
     Date { field: Field, picker: DatePicker },
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
     Continue,
     Save,
     Cancel,
+    OpenLink(String),
 }
 
 #[derive(Clone, Debug)]
@@ -73,6 +77,7 @@ pub struct TaskEditor {
     pub original: Option<usize>,
     pub title: Input,
     pub description: Input,
+    pub comments: Input,
     pub due: String,
     pub start: String,
     pub status: String,
@@ -80,6 +85,7 @@ pub struct TaskEditor {
     pub focus: Field,
     pub popup: Option<Popup>,
     pub error: Option<String>,
+    pub opening_link: bool,
 }
 impl TaskEditor {
     pub fn new(collection: usize, original: Option<usize>, task: Option<&Task>) -> Self {
@@ -93,6 +99,7 @@ impl TaskEditor {
             original,
             title: input(task.map(|t| t.summary.clone()).unwrap_or_default()),
             description: input(task.map(|t| t.description.clone()).unwrap_or_default()),
+            comments: input(task.map(|t| t.comments.clone()).unwrap_or_default()),
             due: task.map(|t| t.due.clone()).unwrap_or_default(),
             start: task.map(|t| t.start.clone()).unwrap_or_default(),
             status: task
@@ -106,6 +113,7 @@ impl TaskEditor {
             },
             popup: None,
             error: None,
+            opening_link: false,
         }
     }
     pub fn status_label(&self) -> &str {
@@ -130,6 +138,7 @@ impl TaskEditor {
             &self.priority,
             &self.description.text,
             &self.start,
+            &self.comments.text,
         ]
         .into_iter()
         .map(|text| {
@@ -170,8 +179,31 @@ impl TaskEditor {
         }
     }
     pub fn key(&mut self, key: KeyEvent, lists: usize) -> Action {
+        if self.opening_link {
+            return if key.code == KeyCode::Esc {
+                Action::Cancel
+            } else {
+                Action::Continue
+            };
+        }
         if let Some(popup) = self.popup.take() {
             match popup {
+                Popup::Links { links, mut row } => {
+                    match key.code {
+                        KeyCode::Esc => return Action::Continue,
+                        KeyCode::Up => row = row.saturating_sub(1),
+                        KeyCode::Down => row = (row + 1).min(links.len().saturating_sub(1)),
+                        KeyCode::Home => row = 0,
+                        KeyCode::End => row = links.len().saturating_sub(1),
+                        KeyCode::Enter => {
+                            if let Some(link) = links.get(row) {
+                                return Action::OpenLink(link.clone());
+                            }
+                        }
+                        _ => {}
+                    }
+                    self.popup = Some(Popup::Links { links, row });
+                }
                 Popup::Choice { kind, mut row } => {
                     let count = match kind {
                         Choice::List => lists,
@@ -221,6 +253,22 @@ impl TaskEditor {
             }
             return Action::Continue;
         }
+        if key.code == KeyCode::Char('o') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            let mut links = Vec::new();
+            for word in self.comments.text.split_whitespace() {
+                let link = word.trim_matches(['<', '>']);
+                if link.starts_with("mid:") && !links.iter().any(|item| item == link) {
+                    links.push(link.to_string());
+                }
+            }
+            if links.is_empty() {
+                self.error = Some("No mid: email links in comments".into());
+            } else {
+                self.error = None;
+                self.popup = Some(Popup::Links { links, row: 0 });
+            }
+            return Action::Continue;
+        }
         if key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL) {
             return Action::Save;
         }
@@ -228,7 +276,9 @@ impl TaskEditor {
             KeyCode::Esc => return Action::Cancel,
             KeyCode::Tab => self.move_focus(1),
             KeyCode::BackTab => self.move_focus(-1),
-            KeyCode::Up | KeyCode::Down if self.focus != Field::Description => {
+            KeyCode::Up | KeyCode::Down
+                if !matches!(self.focus, Field::Description | Field::Comments) =>
+            {
                 self.move_focus(if key.code == KeyCode::Up { -1 } else { 1 })
             }
             KeyCode::Left | KeyCode::Right if self.choice().is_some() => {
@@ -285,10 +335,15 @@ impl TaskEditor {
             }
             KeyCode::Enter if self.focus == Field::Save => return Action::Save,
             KeyCode::Enter if self.focus == Field::Cancel => return Action::Cancel,
-            KeyCode::Enter if self.focus == Field::Description => {
-                if self.description.text.len() < 8192 {
-                    self.description.text.insert(self.description.cursor, '\n');
-                    self.description.cursor += 1;
+            KeyCode::Enter if matches!(self.focus, Field::Description | Field::Comments) => {
+                let input = if self.focus == Field::Comments {
+                    &mut self.comments
+                } else {
+                    &mut self.description
+                };
+                if input.text.len() < 8192 {
+                    input.text.insert(input.cursor, '\n');
+                    input.cursor += 1;
                 }
             }
             KeyCode::Enter => self.move_focus(1),
@@ -300,28 +355,35 @@ impl TaskEditor {
                 self.description.key(key);
                 self.error = None;
             }
+            _ if self.focus == Field::Comments => {
+                self.comments.key(key);
+                self.error = None;
+            }
             _ => {}
         }
         Action::Continue
     }
     pub fn paste(&mut self, text: &str) {
-        if self.popup.is_some() {
+        if self.popup.is_some() || self.opening_link {
             return;
         }
         match self.focus {
             Field::Title => self.title.insert(text),
-            Field::Description => {
+            Field::Description | Field::Comments => {
+                let input = if self.focus == Field::Comments {
+                    &mut self.comments
+                } else {
+                    &mut self.description
+                };
                 let text: String = text
                     .replace("\r\n", "\n")
                     .replace('\r', "\n")
                     .chars()
                     .filter(|c| *c == '\n' || !c.is_control())
                     .collect();
-                if self.description.text.len() + text.len() <= 8192 {
-                    self.description
-                        .text
-                        .insert_str(self.description.cursor, &text);
-                    self.description.cursor += text.len();
+                if input.text.len() + text.len() <= 8192 {
+                    input.text.insert_str(input.cursor, &text);
+                    input.cursor += text.len();
                 }
             }
             _ => return,
